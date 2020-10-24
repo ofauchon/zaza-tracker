@@ -20,16 +20,23 @@ const (
 )
 
 type status struct {
-	fix *gps.Fix
+	fix   *gps.Fix
+	debug uint8
 }
 
+const (
+	DBG_GPS = 1
+)
+
+var loraRadio sx127x.Device
+
 var loraConfig = sx127x.Config{
-	//	Frequency:       433998500,
 	Frequency:       868000000,
-	SpreadingFactor: 7,
+	SpreadingFactor: 12,
 	Bandwidth:       125000,
-	CodingRate:      6,
-	TxPower:         17,
+	CodingRate:      8,
+	TxPower:         5,
+	PaBoost:         true,
 }
 
 var (
@@ -45,14 +52,14 @@ func processCmd(cmd string) error {
 	ss := strings.Split(cmd, " ")
 	switch ss[0] {
 	case "help":
-		println("reset: reset rfm69 device")
-		println("send xxxxxxx: send string over the air ")
+		println("reset: reset lora device")
 		println("get: temp|mode|freq|regs")
-		println("set: freq <433900000> set transceiver frequency (in Hz)")
+		println("set: freq <8680000000> set transceiver frequency (in Hz)")
 		println("mode: <rx,tx,standby,sleep>")
+		println("debug: <gps,none> enable debug or none")
 
 	case "reset":
-		//d.Reset()
+		loraRadio.Reset()
 		println("Reset done !")
 
 	case "send":
@@ -110,23 +117,24 @@ func processCmd(cmd string) error {
 		if len(ss) == 2 {
 			switch ss[1] {
 			case "standby":
-				//d.SetMode(rfm69.RFM69_MODE_STANDBY)
-				//d.WaitForMode()
-				println("Mode changed !")
+				loraRadio.Standby()
+				println("Mode changed to Standby !")
 			case "sleep":
-				//d.SetMode(rfm69.RFM69_MODE_SLEEP)
-				//d.WaitForMode()
-				println("Mode changed !")
-			case "tx":
-				//d.SetMode(rfm69.RFM69_MODE_TX)
-				//d.WaitForMode()
-				println("Mode changed !")
-			case "rx":
-				//d.SetMode(rfm69.RFM69_MODE_RX)
-				//d.WaitForMode()
-				println("Mode changed !")
+				loraRadio.Sleep()
+				println("Mode changed to Sleep !")
 			default:
 				return errors.New("Unknown command mode")
+			}
+		}
+	case "debug":
+		if len(ss) == 2 {
+			switch ss[1] {
+			case "gps":
+				st.debug |= DBG_GPS
+			case "none":
+				st.debug = 0
+			default:
+				return errors.New("Unknown command gps")
 			}
 		}
 	default:
@@ -138,9 +146,7 @@ func processCmd(cmd string) error {
 
 // serial() function is a gorouting for handling USART rx data
 func serial(serial *machine.UART) string {
-	println("A0")
 	input := make([]byte, 100) // serial port buffer
-	println("A1")
 
 	i := 0
 
@@ -156,14 +162,13 @@ func serial(serial *machine.UART) string {
 			data, _ := serial.ReadByte() // read a character
 
 			switch data {
-			case 10: // pressed return key
-				println("A3")
+			case 13: // pressed return key
+				uartConsole.Write([]byte("\r\n"))
 				cmd := string(input[:i])
-				println(cmd)
+				processCmd(cmd)
 				i = 0
 			default: // pressed any other key
 				uartConsole.WriteByte(data)
-				serial.WriteByte('A')
 				input[i] = data
 				i++
 			}
@@ -183,6 +188,10 @@ func gpsTask(pGps gps.Device, pParser gps.Parser) {
 		if err != nil {
 			//println(err)
 			continue
+		}
+
+		if (st.debug & DBG_GPS) > 0 {
+			println("DGB:", s)
 		}
 
 		fix, err = pParser.Parse(s)
@@ -283,6 +292,7 @@ func main() {
 	// UART0 (Console)
 	uartConsole = &machine.UART0
 	uartConsole.Configure(machine.UARTConfig{TX: machine.UART_TX_PIN, RX: machine.UART_TX_PIN, BaudRate: 9600})
+	go serial(uartConsole)
 
 	// UART1 (GPS)
 	uartGps = &machine.UART1
@@ -300,7 +310,7 @@ func main() {
 	rstPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	dio0Pin := machine.PC13
 	dio0Pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	loraRadio := sx127x.New(machine.SPI0, csPin, rstPin)
+	loraRadio = sx127x.New(machine.SPI0, csPin, rstPin)
 	var err = loraRadio.Configure(loraConfig)
 	if err != nil {
 		fmt.Println(err)
@@ -331,20 +341,17 @@ func main() {
 		}
 
 		if (cycle % 10) == 0 {
-			if st.fix != nil {
+			if st.fix != nil && st.fix.Valid {
 				machine.LED_BLUE.Set(true)
-				println("Satellites:", st.fix.Satellites)
-				println("Altitude:", st.fix.Altitude)
-				println("Speed:", st.fix.Speed)
-				println("Heading:", st.fix.Heading)
-			}
-		}
 
-		if (cycle % 15) == 0 {
-			machine.LED_RED.Set(true)
-			var packet = "Spd:"
-			println("LORA_TX:", packet)
-			loraRadio.SendPacket([]byte(packet))
+				pkt := strconv.FormatFloat(float64(st.fix.Latitude), 'f', -1, 32) + ";"
+				pkt += strconv.FormatFloat(float64(st.fix.Longitude), 'f', -1, 32) + ";"
+				pkt += strconv.FormatFloat(float64(st.fix.Altitude), 'f', -1, 32) + ";"
+				pkt += strconv.FormatFloat(float64(st.fix.Heading), 'f', -1, 32) + ";"
+				println("Send Lora: ", pkt)
+				loraRadio.SendPacket([]byte(pkt))
+
+			}
 		}
 
 		if machine.BUTTON.Get() {

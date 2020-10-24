@@ -8,8 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"errors"
-
 	"tinygo.org/x/drivers/gps"
 	"tinygo.org/x/drivers/lora/sx127x"
 )
@@ -25,10 +23,11 @@ type status struct {
 
 var loraConfig = sx127x.Config{
 	Frequency:       868000000,
-	SpreadingFactor: 7,
+	SpreadingFactor: 12,
 	Bandwidth:       125000,
-	CodingRate:      6,
-	TxPower:         17,
+	CodingRate:      8,
+	TxPower:         5,
+	PaBoost:         true,
 }
 
 var (
@@ -38,55 +37,79 @@ var (
 	send_data            = string("")
 	send_delay           = int(0)
 	packet               [255]byte
+	loraRadio            sx127x.Device
+	keypressed           bool
 )
 
 // processCmd parses commands and execute actions
-func processCmd(cmd string) error {
+func processCmd(cmd string) {
 	ss := strings.Split(cmd, " ")
 	switch ss[0] {
 	case "help":
-		println("reset: reset rfm69 device")
-		println("send xxxxxxx: send string over the air ")
-		println("get: temp|mode|freq|regs")
+		println("reset: reset sx1276 device")
+		println("loratx xxxxxxx: send 1 Lora packet every second until keypressed")
+		println("lorarx : listen to lora packets until keypressed")
+		println("get: sx1276config|regs")
 		println("set: freq <433900000> set transceiver frequency (in Hz)")
-		println("mode: <rx,tx,standby,sleep>")
+		//println("mode: <rx,tx,standby,sleep>")
 
 	case "reset":
-		//d.Reset()
+		loraRadio.Reset()
 		println("Reset done !")
 
-	case "send":
+	// Send 1 packet every 10 Seconds
+	case "loratx":
 		if len(ss) == 2 {
-			println("Scheduled data to send :", ss[1])
-			send_data = ss[1]
-			/*
-				err := d.Send([]byte(send_data))
-				if err != nil {
-					println("Send error", err)
+			keypressed = false
+			go func() {
+				cnt := int(0)
+				for !keypressed {
+					cnt++
+					machine.LED_BLUE.Set(true)
+					time.Sleep(250 * time.Millisecond)
+					machine.LED_BLUE.Set(false)
+					println("LoraTX Send: ", strconv.Itoa(cnt))
+					loraRadio.SendPacket([]byte(strconv.Itoa(cnt)))
+					time.Sleep(10 * time.Second)
 				}
-			*/
+				println("LoraTX: Stopped by user")
+			}()
+
 		}
+	// Listen for Lora packets for 20 Seconds
+	case "lorarx":
+		keypressed = false
+		go func() {
+			loraRadio.ReceiveContinuous()
+
+			for !keypressed {
+				packetSize := loraRadio.ParsePacket(0)
+				//println("LoraRX: packetSize=", packetSize, " RSSI:", loraRadio.GetRSSI())
+				if packetSize > 0 {
+					//println("Got packet, RSSI=", loraRadio.LastPacketRSSI())
+					size := loraRadio.ReadPacket(packet[:])
+					println("RX: ", string(packet[:size]), " packetsize", packetSize)
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+			println("LoraRX: Stopped by user")
+		}()
+
 	case "get":
 		if len(ss) == 2 {
 			switch ss[1] {
-			case "freq":
-				//println("Freq:")
+			case "sx1276config":
+				println("Frequency:", loraRadio.GetFrequency())
+				println("SpreadingFactor:", loraRadio.GetSpreadingFactor())
+				println("Bandwidth:", loraRadio.GetBandwidth())
 			case "temp":
 				//temp, _ := d.ReadTemperature(0)
 				println("Temperature:")
-			case "mode":
-				//mode := d.GetMode()
-				println(" Mode:")
 			case "regs":
 				println(" Regs:")
-				/*
-					for i := uint8(0); i < 0x60; i++ {
-						val, _ := d.ReadReg(i)
-						println(" Reg: ", strconv.FormatInt(int64(i), 16), " -> ", strconv.FormatInt(int64(val), 16))
-					}
-				*/
+				loraRadio.PrintRegisters(true)
 			default:
-				return errors.New("Unknown command get")
+				println("Invalid use of 'get'")
 			}
 		}
 
@@ -103,7 +126,7 @@ func processCmd(cmd string) error {
 				println("TxPower set to ", val)
 			}
 		} else {
-			println("invalid use of set command")
+			println("invalid use of 'set' command")
 		}
 
 	case "mode":
@@ -126,21 +149,18 @@ func processCmd(cmd string) error {
 				//d.WaitForMode()
 				println("Mode changed !")
 			default:
-				return errors.New("Unknown command mode")
+				println("Invalid use of 'mode'")
 			}
 		}
 	default:
-		return errors.New("Unknown command")
+		println("Command Error")
 	}
 
-	return nil
 }
 
 // serial() function is a gorouting for handling USART rx data
 func serial(serial *machine.UART) string {
-	println("A0")
 	input := make([]byte, 100) // serial port buffer
-	println("A1")
 
 	i := 0
 
@@ -152,18 +172,16 @@ func serial(serial *machine.UART) string {
 		}
 
 		if serial.Buffered() > 0 {
-
+			keypressed = true
 			data, _ := serial.ReadByte() // read a character
-
 			switch data {
-			case 10: // pressed return key
-				println("A3")
+			case 13: // pressed return key
+				uartConsole.Write([]byte("\r\n"))
 				cmd := string(input[:i])
-				println(cmd)
+				processCmd(cmd)
 				i = 0
 			default: // pressed any other key
 				uartConsole.WriteByte(data)
-				serial.WriteByte('A')
 				input[i] = data
 				i++
 			}
@@ -188,37 +206,42 @@ func main() {
 	// UART0 (Console)
 	uartConsole = &machine.UART0
 	uartConsole.Configure(machine.UARTConfig{TX: machine.UART_TX_PIN, RX: machine.UART_TX_PIN, BaudRate: 9600})
-
 	// SPI and lx1276
 	machine.SPI0.Configure(machine.SPIConfig{})
 	csPin := machine.PA15
 	csPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	rstPin := machine.PB0
 	rstPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	dio0Pin := machine.PC13
-	dio0Pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	loraRadio := sx127x.New(machine.SPI0, csPin, rstPin)
+	//dio0Pin := machine.PC13
+	// dio0Pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	loraRadio = sx127x.New(machine.SPI0, csPin, rstPin)
 	var err = loraRadio.Configure(loraConfig)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
+	go serial(uartConsole)
 	//-----------------------------------------------------
 	// Start
 	println("*************")
 	println("Zaza Receiver")
 	println("*************")
 
-	println("Receiving LoRa packets...")
+	println("Press help for commands.")
+
+	// 3 Green blinks at start
+	for i := 0; i < 3; i++ {
+		machine.LED_GREEN.Set(true)
+		time.Sleep(250 * time.Millisecond)
+		machine.LED_GREEN.Set(false)
+		time.Sleep(1 * time.Second)
+	}
+
+	processCmd("lorarx")
 
 	for {
-		packetSize := loraRadio.ParsePacket(0)
-		if packetSize > 0 {
-			println("Got packet, RSSI=", loraRadio.LastPacketRSSI())
-			size := loraRadio.ReadPacket(packet[:])
-			println(string(packet[:size]))
-		}
+		time.Sleep(1 * time.Second)
 	}
 
 }
