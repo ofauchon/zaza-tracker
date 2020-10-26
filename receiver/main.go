@@ -1,8 +1,10 @@
 package main
 
 import (
+	"device/stm32"
 	"fmt"
 	"machine"
+	"runtime/interrupt"
 	"runtime/volatile"
 	"strconv"
 	"strings"
@@ -80,18 +82,21 @@ func processCmd(cmd string) {
 	case "lorarx":
 		keypressed = false
 		go func() {
+			//Continuous mode leaves radio always on
 			loraRadio.ReceiveContinuous()
 
 			for !keypressed {
+
 				packetSize := loraRadio.ParsePacket(0)
-				//println("LoraRX: packetSize=", packetSize, " RSSI:", loraRadio.GetRSSI())
 				if packetSize > 0 {
 					//println("Got packet, RSSI=", loraRadio.LastPacketRSSI())
 					size := loraRadio.ReadPacket(packet[:])
 					println("RX: ", string(packet[:size]), " packetsize", packetSize)
 				}
+
 				time.Sleep(500 * time.Millisecond)
 			}
+
 			println("LoraRX: Stopped by user")
 		}()
 
@@ -192,6 +197,11 @@ func serial(serial *machine.UART) string {
 
 }
 
+func Handler_EXTI4_15(inter interrupt.Interrupt) {
+	println("IRQ: ", stm32.EXTI.PR.Get())
+	loraRadio.ParsePacket(0)
+}
+
 //----------------------------------------------------------------------------------------------//
 
 // main is where the program begins :-)
@@ -212,8 +222,6 @@ func main() {
 	csPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	rstPin := machine.PB0
 	rstPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	//dio0Pin := machine.PC13
-	// dio0Pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	loraRadio = sx127x.New(machine.SPI0, csPin, rstPin)
 	var err = loraRadio.Configure(loraConfig)
 	if err != nil {
@@ -221,7 +229,19 @@ func main() {
 		return
 	}
 
+	// RFM95 DIO0 Interrupt
+	machine.RFM95_DIO0_PIN.Configure(machine.PinConfig{Mode: machine.PinInputFloating})
+	//stm32.RCC.APB2ENR.SetBits(stm32.RCC_APB2ENR_AFIOEN)                                // Enable AFIO
+	stm32.SYSCFG_COMP.EXTICR4.ReplaceBits(0b001, 0xf, stm32.SYSCFG_EXTICR4_EXTI13_Pos) // Enable PORTB EXTI only
+	stm32.EXTI.RTSR.SetBits(stm32.EXTI_RTSR_RT13)                                      // Detect Rising Edge of EXTI0 Line
+	stm32.EXTI.IMR.SetBits(stm32.EXTI_IMR_IM13)                                        // Enable EXTI0 line
+
+	intr := interrupt.New(stm32.IRQ_EXTI4_15, Handler_EXTI4_15)
+	intr.SetPriority(0xc0)
+	intr.Enable()
+
 	go serial(uartConsole)
+
 	//-----------------------------------------------------
 	// Start
 	println("*************")
