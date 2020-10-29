@@ -341,6 +341,7 @@ func main() {
 		}
 
 		if (cycle % 10) == 0 {
+			//loraRadio.SendPacket([]byte("Hello"))
 			if st.fix != nil && st.fix.Valid {
 				machine.LED_BLUE.Set(true)
 

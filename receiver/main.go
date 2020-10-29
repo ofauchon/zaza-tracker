@@ -88,10 +88,12 @@ func processCmd(cmd string) {
 			println("lorarx: Start RXContinuous")
 			loraRadio.ReceiveContinuous()
 
+			rxchan := loraRadio.GetRxPktChannel()
+
 			for !keypressed {
-				println("RX packet: Waiting for new packet")
-				packet := <-rxPktChan
-				println("RX packet: New RX", string(packet))
+				//println("RX packet: Waiting for new packet")
+				packet := <-rxchan
+				println("RX packet: '", string(packet), "'")
 
 				/*
 					packetSize := loraRadio.ParsePacket(0)
@@ -205,18 +207,18 @@ func serial(serial *machine.UART) string {
 // Interrupt handler from RFM95_DIO0 (RxDone Event) on PB13
 func gpios_int(inter interrupt.Interrupt) {
 	irqStatus := stm32.EXTI.PR.Get()
-
-	// Crear flag
 	stm32.EXTI.PR.Set(irqStatus)
 
 	if (irqStatus & 0x2000) > 0 { // PC13 : DIO
 
-		packetSize := loraRadio.ParsePacket(0)
-		println("pgios_int: packetSize:", packetSize)
-		if packetSize > 0 {
-			size := loraRadio.ReadPacket(packet[:])
-			rxPktChan <- packet[:size]
-		}
+		/*
+		   println("pgios_int: packetSize:", packetSize)
+		   		if packetSize > 0 {
+		   			size := loraRadio.ReadPacket(packet[:])
+		   			rxPktChan <- packet[:size]
+		   		}
+		*/
+		loraRadio.DioIntHandler()
 
 	}
 	if (irqStatus & 0x4000) > 0 { // PB14 : Button
