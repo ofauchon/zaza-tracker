@@ -2,6 +2,7 @@ package main
 
 import (
 	"device/stm32"
+	"encoding/hex"
 	"machine"
 	"runtime/interrupt"
 	"runtime/volatile"
@@ -22,6 +23,7 @@ type status struct {
 	fix *gps.Fix
 }
 
+/*
 var loraConfig = sx127x.Config{
 	Frequency:       868000000,
 	SpreadingFactor: 12,
@@ -29,6 +31,20 @@ var loraConfig = sx127x.Config{
 	CodingRate:      8,
 	TxPower:         5,
 	PaBoost:         true,
+}
+*/
+
+// Lorawan configuration
+var loraConfig = sx127x.Config{
+	Frequency:            868300000,
+	SpreadingFactor:      7,
+	Bandwidth:            125000,
+	CodingRate:           4,
+	TxPower:              20,
+	PaBoost:              true,
+	SyncWord:             0x34, // Lorawan sync
+	ImplicitHeaderModeOn: false,
+	CrcOn:                true,
 }
 
 var (
@@ -51,7 +67,7 @@ func processCmd(cmd string) {
 	switch ss[0] {
 	case "help":
 		println("reset: reset sx1276 device")
-		println("loratx xxxxxxx: send 1 Lora packet every second until keypressed")
+		println("loratx <hex> : send packet <hex>")
 		println("lorarx : listen to lora packets until keypressed")
 		println("get: sx1276config|regs")
 		println("set: freq <433900000> set transceiver frequency (in Hz)")
@@ -64,21 +80,14 @@ func processCmd(cmd string) {
 	// Send Lora packets
 	case "loratx":
 		if len(ss) == 2 {
-			keypressed = false
-			go func() {
-				cnt := int(0)
-				for !keypressed {
-					cnt++
-					machine.LED_BLUE.Set(true)
-					time.Sleep(250 * time.Millisecond)
-					machine.LED_BLUE.Set(false)
-					println("LoraTX Send: ", strconv.Itoa(cnt))
-					loraRadio.SendPacket([]byte(strconv.Itoa(cnt)))
-					time.Sleep(10 * time.Second)
-				}
-				println("LoraTX: Stopped by user")
-			}()
+			tmp, err := hex.DecodeString(ss[1])
+			if err != nil {
+				println("Invalid packet payload, can't send")
+			} else {
+				loraRadio.TxLora(tmp)
+				println("LoraTX ", len(tmp), "bytes sent")
 
+			}
 		}
 
 	// Listen for Lora packets
@@ -86,7 +95,7 @@ func processCmd(cmd string) {
 		keypressed = false
 		go func() {
 			println("lorarx: Start RXContinuous")
-			loraRadio.ReceiveContinuous()
+			loraRadio.SetOpMode(sx127x.OPMODE_RX)
 
 			rxchan := loraRadio.GetRxPktChannel()
 
@@ -257,7 +266,8 @@ func hw_init() {
 	rstPin := machine.PB0
 	rstPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	loraRadio = sx127x.New(machine.SPI0, csPin, rstPin)
-	loraRadio.Configure(loraConfig)
+	// Prepare Lora chil
+	loraRadio.Init(loraConfig)
 	// Configure PB13 (connected to DIO0.rfm95)
 	machine.RFM95_DIO0_PIN.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
 	stm32.SYSCFG_COMP.EXTICR4.ReplaceBits(0b010, 0xf, stm32.SYSCFG_EXTICR4_EXTI13_Pos) // Enable PORTC On line 13
@@ -292,7 +302,7 @@ func main() {
 	}
 
 	// Force RX
-	processCmd("lorarx")
+	processCmd("loratx 1de965a196b3")
 
 	// Wait forever
 	for {
