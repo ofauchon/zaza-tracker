@@ -1,8 +1,11 @@
 package lightlw
 
+import "fmt"
+
 /*
 This code was inspired from various projects:
 https://github.com/BeelanMX/Beelan-LoRaWAN/blob/master/src/arduino-rfm/LoRaMAC.cpp
+https://github.com/brocaar/lorawan
 */
 
 const (
@@ -157,6 +160,7 @@ func (r *LightLW) GenerateJoinRequest() []uint8 {
 	}
 
 	// Load DevNounce
+	fmt.Println("Warning => No random DevNounce")
 	//FIXME r.Otaa.DevNonce = r.generateDevNounce()
 	rfmBuffer = append(rfmBuffer, uint8(r.Otaa.DevNonce&0x00FF))
 	rfmBuffer = append(rfmBuffer, uint8((r.Otaa.DevNonce>>8)&0x00FF))

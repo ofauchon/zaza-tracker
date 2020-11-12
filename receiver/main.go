@@ -3,15 +3,25 @@ package main
 import (
 	"device/stm32"
 	"encoding/hex"
+	"errors"
 	"machine"
 	"runtime/interrupt"
 	"runtime/volatile"
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
+	//"github.com/ofauchon/zaza-tracker/lightlw"
 	"tinygo.org/x/drivers/gps"
 	"tinygo.org/x/drivers/lora/sx127x"
+)
+
+// Lorawan tests
+const (
+	myAppKey  = "2C44FCF86C7B767B8FD3124FCE7A3216"
+	myDevEUI  = "D0000000000AA001"
+	myJoinEUI = "A000000000000102"
 )
 
 const (
@@ -61,6 +71,30 @@ var (
 // Channel for packet RX
 var rxPktChan chan []byte
 
+//
+// LORA JOIN
+//
+
+func loraJoin() ([]byte, error) {
+
+	tmp1, err1 := hex.DecodeString(myAppKey)
+	tmp2, err2 := hex.DecodeString(myDevEUI)
+	tmp3, err3 := hex.DecodeString(myJoinEUI)
+	if err1 != nil && err2 != nil && err3 != nil {
+		e := errors.New("Bad AppKey, DevEUI, JoinEUI")
+		return nil, e
+
+	}
+	var kAppKey [16]byte
+	var kDevEUI, kJoinEUI [8]byte
+
+	copy(kAppKey[:], tmp1[0:16])
+	copy(kDevEUI[:], tmp2[0:8])
+	copy(kJoinEUI[:], tmp3[0:8])
+
+	return nil, nil
+}
+
 // processCmd parses commands and execute actions
 func processCmd(cmd string) {
 	ss := strings.Split(cmd, " ")
@@ -69,13 +103,46 @@ func processCmd(cmd string) {
 		println("reset: reset sx1276 device")
 		println("loratx <hex> : send packet <hex>")
 		println("lorarx : listen to lora packets until keypressed")
+		println("eepw <pos> <byte> : write byte at eeprom_start+pos")
+		println("eepr <pos> : read byte at eeprom_start+pos")
 		println("get: sx1276config|regs")
-		println("set: freq <433900000> set transceiver frequency (in Hz)")
+		println("set: freq <868300000> set transceiver frequency (in Hz)")
 		//println("mode: <rx,tx,standby,sleep>")
 
 	case "reset":
 		loraRadio.Reset()
 		println("Reset done !")
+
+	case "eepw":
+		if len(ss) == 3 {
+			p, err := strconv.ParseUint(ss[1], 16, 64)
+			if err == nil {
+				b, err := strconv.ParseUint(ss[2], 16, 64)
+				if err == nil {
+					println("Write eeprom pos:", p, " byte:", b)
+					ptr := unsafe.Pointer(uintptr(0x08080000 + p))
+					*(*uint8)(ptr) = uint8(b)
+				} else {
+					println("Wrong byte value")
+				}
+			} else {
+				println("Wrong pos value")
+
+			}
+
+		}
+
+	case "eepr":
+		if len(ss) == 2 {
+			p, err := strconv.ParseUint(ss[1], 16, 64)
+			if err == nil {
+				ptr := unsafe.Pointer(uintptr(0x08080000 + p))
+				println("Read eeprom pos:", p, " value:", *(*uint8)(ptr))
+
+			} else {
+				println("Wrong pos value")
+			}
+		}
 
 	// Send Lora packets
 	case "loratx":
@@ -236,6 +303,16 @@ func gpios_int(inter interrupt.Interrupt) {
 
 }
 
+// Get Random 32bit
+func getRng() uint32 {
+	// Enable PRNG
+	stm32.RNG.CR.SetBits(stm32.RNG_CR_RNGEN)
+	if stm32.RNG.SR.HasBits(1) {
+		return stm32.RNG.DR.Get()
+	}
+	return 0
+}
+
 // hw_init() is responsible for all hardware init
 // Refs: https://stackoverflow.com/questions/63746239/enable-external-interrupts-arm-cortex-m0-stm32g070
 func hw_init() {
@@ -258,6 +335,14 @@ func hw_init() {
 	uartConsole = &machine.UART0
 	uartConsole.Configure(machine.UARTConfig{TX: machine.UART_TX_PIN, RX: machine.UART_TX_PIN, BaudRate: 9600})
 	go serial(uartConsole)
+	/*
+		// UART1 (GPS)
+		uartGps = &machine.UART1
+		uartGps.Configure(machine.UARTConfig{TX: machine.UART1_TX_PIN, RX: machine.UART1_TX_PIN, BaudRate: 9600})
+		// GPS driver
+		gps1 := gps.NewUART(uartGps)
+		parser1 := gps.NewParser()
+	*/
 	// Spi bus configuration
 	machine.SPI0.Configure(machine.SPIConfig{})
 	// Lora sx1276/rfm95 configuration
@@ -278,6 +363,7 @@ func hw_init() {
 	intr := interrupt.New(stm32.IRQ_EXTI4_15, gpios_int)
 	intr.SetPriority(0x0)
 	intr.Enable()
+
 }
 
 //----------------------------------------------------------------------------------------------//
