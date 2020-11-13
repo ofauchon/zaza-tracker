@@ -10,9 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
-	//"github.com/ofauchon/zaza-tracker/lightlw"
+	"github.com/ofauchon/zaza-tracker/drivers"
 	"tinygo.org/x/drivers/gps"
 	"tinygo.org/x/drivers/lora/sx127x"
 )
@@ -68,6 +67,8 @@ var (
 	keypressed           bool
 )
 
+var e2p drivers.Eeprom
+
 // Channel for packet RX
 var rxPktChan chan []byte
 
@@ -103,8 +104,8 @@ func processCmd(cmd string) {
 		println("reset: reset sx1276 device")
 		println("loratx <hex> : send packet <hex>")
 		println("lorarx : listen to lora packets until keypressed")
-		println("eepw <pos> <byte> : write byte at eeprom_start+pos")
-		println("eepr <pos> : read byte at eeprom_start+pos")
+		println("eepw <offset> <byte> : write <byte> at <eeprom_start+offset>, (use hex)")
+		println("eepr <offset> <count>: read <count> bytes at <eeprom_start+offset> (use hex)")
 		println("get: sx1276config|regs")
 		println("set: freq <868300000> set transceiver frequency (in Hz)")
 		//println("mode: <rx,tx,standby,sleep>")
@@ -115,20 +116,21 @@ func processCmd(cmd string) {
 
 	case "eepw":
 		if len(ss) == 3 {
-			p, err := strconv.ParseUint(ss[1], 16, 64)
+			t1, err := strconv.ParseUint(ss[1], 16, 64)
+			p := uint32(t1)
 			if err == nil {
-				b, err := strconv.ParseUint(ss[2], 16, 64)
+				t2, err := strconv.ParseUint(ss[2], 16, 64)
+				b := uint8(t2)
 				if err == nil {
-					println("Write eeprom pos:", p, " byte:", b)
-					ptr := unsafe.Pointer(uintptr(0x08080000 + p))
-					*(*uint8)(ptr) = uint8(b)
-				} else {
-					println("Wrong byte value")
+					e2p.Unlock()
+					println("Write eeprom : offset:", p, " byte:", b)
+					e2p.WriteUint8(b, p)
 				}
 			} else {
-				println("Wrong pos value")
-
+				println("Wrong byte value")
 			}
+		} else {
+			println("Wrong pos value")
 
 		}
 
@@ -136,8 +138,8 @@ func processCmd(cmd string) {
 		if len(ss) == 2 {
 			p, err := strconv.ParseUint(ss[1], 16, 64)
 			if err == nil {
-				ptr := unsafe.Pointer(uintptr(0x08080000 + p))
-				println("Read eeprom pos:", p, " value:", *(*uint8)(ptr))
+				v := e2p.ReadUint8(uint32(p))
+				println("Read eeprom pos:", p, " value:", v)
 
 			} else {
 				println("Wrong pos value")
@@ -388,7 +390,7 @@ func main() {
 	}
 
 	// Force RX
-	processCmd("loratx 1de965a196b3")
+	//	processCmd("loratx 1de965a196b3")
 
 	// Wait forever
 	for {

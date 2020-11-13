@@ -1,6 +1,10 @@
-package lightlw
+package drivers
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/jacobsa/crypto/cmac"
+)
 
 /*
 This code was inspired from various projects:
@@ -214,4 +218,19 @@ func (r *LightLW) encryptPayload(payload []uint8, lMsg LoraMsg) {
 
 	}
 
+}
+
+/* Compute MIC for Join Request
+ * cmac = aes128_cmac(AppKey, MHDR | AppEUI | DevEUI | DevNonce)
+ * MIC = cmac[0..3]
+ */
+func (r *LightLW) CalculateUplinkJoinMIC(micBytes []uint8, key [16]uint8) [4]uint8 {
+	var mic [4]uint8
+
+	hash, _ := cmac.New(key[:])
+	hash.Write(micBytes)
+	hb := hash.Sum([]byte{})
+
+	copy(mic[:], hb[0:4])
+	return mic
 }
