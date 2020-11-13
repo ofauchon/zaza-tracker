@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
+	"device/stm32"
 	"machine"
+	"runtime/interrupt"
 	"runtime/volatile"
 	"strconv"
 	"strings"
@@ -30,13 +31,17 @@ const (
 
 var loraRadio sx127x.Device
 
+// Lorawan configuration
 var loraConfig = sx127x.Config{
-	Frequency:       868000000,
-	SpreadingFactor: 12,
-	Bandwidth:       125000,
-	CodingRate:      8,
-	TxPower:         5,
-	PaBoost:         true,
+	Frequency:            868300000,
+	SpreadingFactor:      7,
+	Bandwidth:            125000,
+	CodingRate:           4,
+	TxPower:              20,
+	PaBoost:              true,
+	SyncWord:             0x34, // Lorawan sync
+	ImplicitHeaderModeOn: false,
+	CrcOn:                true,
 }
 
 var (
@@ -117,11 +122,11 @@ func processCmd(cmd string) error {
 		if len(ss) == 2 {
 			switch ss[1] {
 			case "standby":
-				loraRadio.Standby()
-				println("Mode changed to Standby !")
+				//loraRadio.Standby()
+				println("TODO: Mode changed to Standby !")
 			case "sleep":
-				loraRadio.Sleep()
-				println("Mode changed to Sleep !")
+				//loraRadio.Sleep()
+				println("TODO: Mode changed to Sleep !")
 			default:
 				return errors.New("Unknown command mode")
 			}
@@ -209,51 +214,6 @@ func gpsTask(pGps gps.Device, pParser gps.Parser) {
 	}
 }
 
-/*
-func initButtonInt() {
-
-	lightLed.Set(0)
-
-	// Configure Button (PB14)
-	// Enable GPIOB clock
-	stm32.RCC.IOPENR.SetBits(stm32.RCC_IOPENR_IOPBEN)
-	// Configure PB14 as an input (mode 00) and Floating
-	stm32.GPIOB.MODER.ReplaceBits(0b00, 0x3, stm32.GPIO_MODER_MODE14_Pos)
-	stm32.GPIOB.PUPDR.ReplaceBits(0b00, 0x3, stm32.GPIO_PUPDR_PUPD14_Pos)
-
-	// Configure External Interrupt Line 14
-	stm32.EXTI.IMR.SetBits(stm32.EXTI_IMR_IM14)   // Enable EXTI14 line
-	stm32.EXTI.RTSR.SetBits(stm32.EXTI_RTSR_RT14) // Detect Rising Edge of EXTI14 Line
-	stm32.EXTI.FTSR.SetBits(stm32.EXTI_FTSR_FT14) // Detect Falling Edge of EXTI14 Line
-
-	// PB14 is connected to External Interrupt Line 14 (EXTI14)
-	stm32.SYSCFG_COMP.EXTICR4.ReplaceBits(0b001, 0xf, stm32.SYSCFG_EXTICR4_EXTI14_Pos) // Enable PORTB EXTI only
-
-	intr := interrupt.New(stm32.IRQ_EXTI4_15, func(i interrupt.Interrupt) {
-
-		// Check line 14 has triggered the IT
-		if stm32.EXTI.PR.HasBits(stm32.EXTI_PR_PIF14) {
-			// Clear pending bit
-			stm32.EXTI.PR.Set(stm32.EXTI_PR_PIF14)
-			println("Interrupt", stm32.EXTI.PR.Get())
-
-			if lightLed.Get() != 0 {
-				lightLed.Set(0)
-				machine.LED_GREEN.Low()
-			} else {
-				lightLed.Set(1)
-				machine.LED_GREEN.High()
-			}
-
-		} else {
-			println("Error")
-		}
-	})
-	intr.SetPriority(0x0)
-	intr.Enable()
-
-}
-*/
 func GpsEnable() {
 	// GPS Standby_L (PB3)
 	machine.GPS_STANDBY_PIN.Configure(machine.PinConfig{Mode: machine.PinOutput})
@@ -278,51 +238,81 @@ func GpsDisable() {
 	machine.GPS_POWER_PIN.Set(false)
 }
 
-//----------------------------------------------------------------------------------------------//
+// Interrupt handler from RFM95_DIO0 (RxDone Event) on PB13
+func gpios_int(inter interrupt.Interrupt) {
+	irqStatus := stm32.EXTI.PR.Get()
+	stm32.EXTI.PR.Set(irqStatus)
 
-// main is where the program begins :-)
-func main() {
+	if (irqStatus & 0x2000) > 0 { // PC13 : DIO
 
-	// Led
-	machine.LED_RED.Configure(machine.PinConfig{Mode: machine.PinOutput})
+		loraRadio.DioIntHandler()
+	}
+	if (irqStatus & 0x4000) > 0 { // PB14 : Button
+		println("Button: ", machine.BUTTON.Get())
+	}
 
-	//Button
+}
+
+func hw_init() {
+	// SYSCFGEN is NEEDED FOR IRQ HANDLERS (button + Dio) .. Do not remove
+	stm32.RCC.APB2ENR.SetBits(stm32.RCC_APB2ENR_SYSCFGEN)
+
+	// BUTTON PB14
 	machine.BUTTON.Configure(machine.PinConfig{Mode: machine.PinInputPulldown})
-
+	stm32.SYSCFG_COMP.EXTICR4.ReplaceBits(0b001, 0xf, stm32.SYSCFG_EXTICR4_EXTI14_Pos) // Enable PORTB On line 14
+	stm32.EXTI.RTSR.SetBits(stm32.EXTI_RTSR_RT14)                                      // Detect Rising Edge of EXTI14 Line
+	stm32.EXTI.FTSR.SetBits(stm32.EXTI_FTSR_FT14)                                      // Detect Falling Edge of EXTI14 Line
+	stm32.EXTI.IMR.SetBits(stm32.EXTI_IMR_IM14)                                        // Enable EXTI14 line
+	// GPIOS: Leds
+	machine.LED_RED.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	machine.LED_GREEN.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	machine.LED_BLUE.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	// UART0 (Console)
 	uartConsole = &machine.UART0
 	uartConsole.Configure(machine.UARTConfig{TX: machine.UART_TX_PIN, RX: machine.UART_TX_PIN, BaudRate: 9600})
-	go serial(uartConsole)
-
 	// UART1 (GPS)
 	uartGps = &machine.UART1
 	uartGps.Configure(machine.UARTConfig{TX: machine.UART1_TX_PIN, RX: machine.UART1_TX_PIN, BaudRate: 9600})
-
 	// GPS driver
 	gps1 := gps.NewUART(uartGps)
 	parser1 := gps.NewParser()
-
-	// SPI and lx1276
+	// Spi bus configuration
 	machine.SPI0.Configure(machine.SPIConfig{})
+	// Lora sx1276/rfm95 configuration
 	csPin := machine.PA15
 	csPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	rstPin := machine.PB0
 	rstPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
-	dio0Pin := machine.PC13
-	dio0Pin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	loraRadio = sx127x.New(machine.SPI0, csPin, rstPin)
-	var err = loraRadio.Configure(loraConfig)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	// Prepare Lora chil
+	loraRadio.Init(loraConfig)
+	// Configure PB13 (connected to DIO0.rfm95)
+	machine.RFM95_DIO0_PIN.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	stm32.SYSCFG_COMP.EXTICR4.ReplaceBits(0b010, 0xf, stm32.SYSCFG_EXTICR4_EXTI13_Pos) // Enable PORTC On line 13
+	stm32.EXTI.RTSR.SetBits(stm32.EXTI_RTSR_RT13)                                      // Detect Rising Edge of EXTI13 Line
+	stm32.EXTI.FTSR.SetBits(stm32.EXTI_FTSR_FT13)                                      // Detect Falling Edge of EXTI13 Line
+	stm32.EXTI.IMR.SetBits(stm32.EXTI_IMR_IM13)                                        // Enable EXTI13 line
+	// Enable interrupts
+	intr := interrupt.New(stm32.IRQ_EXTI4_15, gpios_int)
+	intr.SetPriority(0x0)
+	intr.Enable()
+
+	// Start Serial console
+	go serial(uartConsole)
 
 	// Start GPS Device
 	GpsEnable()
 	go gpsTask(gps1, parser1)
 
-	//-----------------------------------------------------
-	// Start
+}
+
+//----------------------------------------------------------------------------------------------//
+
+// main is where the program begins :-)
+func main() {
+
+	hw_init()
+
 	println("************")
 	println("Zaza Tracker")
 	println("************")
@@ -340,8 +330,7 @@ func main() {
 			machine.LED_GREEN.Set(true)
 		}
 
-		if (cycle % 10) == 0 {
-			//loraRadio.SendPacket([]byte("Hello"))
+		if (cycle % 60) == 0 {
 			if st.fix != nil && st.fix.Valid {
 				machine.LED_BLUE.Set(true)
 
@@ -350,7 +339,8 @@ func main() {
 				pkt += strconv.FormatFloat(float64(st.fix.Altitude), 'f', -1, 32) + ";"
 				pkt += strconv.FormatFloat(float64(st.fix.Heading), 'f', -1, 32) + ";"
 				println("Send Lora: ", pkt)
-				loraRadio.SendPacket([]byte(pkt))
+
+				loraRadio.TxLora([]byte(pkt))
 
 			}
 		}
