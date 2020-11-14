@@ -16,18 +16,22 @@ At the moment, It's composed of two modules you can flash independently on a LGT
 
 # Status (on 13/11/2020)
 
-|Task|Status|
-|----|----|
-|Build and run TinyGO on STM32L0x|  **DONE** but not yet merged in upstream Tinygo|
-|Serial console interface on LPUART1 |**DONE**| 
-|Power up, read serial, decode sentences from L70 GPS|**DONE**|
-|RGB Led|**DONE**|
-|Push Button|**DONE**, with GPIO interrupt handler|
-|SX1276 minimal SPI driver |**DONE**, RX/TX packets OK|
-|Eeprom to store configuration|**WIP**|
-|Lorawan lightweight stack| **WIP**|
-|Code cleanup| TODO |
-|Documentation| TODO |
+|Category|Task|Status|
+|---|----|----|
+|Hardware|TinyGO support for STM32L0x|  **DONE** but not yet merged in upstream Tinygo|
+|Hardware|LPUART1 for serial console |**DONE** Serial communication OK| 
+|Hardware|UART1 for L70 GPS|**DONE** : Serial communication OK|
+|Hardware|RGB Led|**DONE** Individual LED control with GPIOs OK |
+|Hardware|SX1276 SPI driver |**DONE**, SX1276 read/write register OK |
+|Hardware|Push Button|**DONE**, Push and release events handled through external interrupt OK|
+|Hardware|STM32L0 Eeprom support|**DONE** Eeprom Read/Write is OK. |
+|Hardware|Reduce power consumption with Low power mode| **TO BE DONE** |
+|Hardware|Watchdog and hardware reset| **TO BE DONE** |
+|Radio|Lorawan lightweight stack| **WIP** First Lorawan Join Requests packet implementation OK. Next: Receive Join Accept packets and send real data  |
+|Protocols|GPS Sentence decoding|**DONE** Getting a GPS Fix in about 30-60s|
+|Protocols|serial console CLI and AT Commands| **TO BE DONE** |
+|Other|Code cleanup| **TO BE DONE** |
+|Other|Documentation (Build, flash, contribute)| **TO BE DONE** |
 
 # How to run  
 
