@@ -13,6 +13,9 @@ At the moment, It's composed of two modules you can flash independently on a LGT
   * The "tracker" which determine location and send radio packets
   * The "receiver" which listen to radio packets and help locate the tracker
 
+The code is under heavy developpement and highly instable, please be kind. 
+
+Please send me a mail at ofauchon2204@gmail.com if you want to work on the project. 
 
 # Status (on 13/11/2020)
 
@@ -37,9 +40,9 @@ At the moment, It's composed of two modules you can flash independently on a LGT
 
   * Prerequisite
 ```
-  - A working TinyGO environnement with LGT92/STM32L0x support (*)
-  - SWD interface (STLink or Bluepill) to flash the firmware on LGT92
-  - TTL USART interface to connect to serial console (upcoming advanced features)
+  - A working TinyGO environnement with LGT92/STM32L0x support (*), with https://github.com/tinygo-org/tinygo/pull/1430 patch
+  - SWD interface (STLink or BlackMagic) to flash the firmware on LGT92
+  - TTL USART interface to connect to serial console 
  
 (*) Still work in progress, not yet merged in TinyGo official repositories
 ```
@@ -49,9 +52,9 @@ At the moment, It's composed of two modules you can flash independently on a LGT
 
 ```
 cd receiver/
-Run "make" to build the firmaware
-Run "make flash" to flash (with bluepill)
-Run "make term" to open serial console (with bluepill)
+Run "make" to build the firmware
+Run "make flash" to flash (with BlackMagic Probe)
+Run "make term" to open serial console (with blackMagic Probe)
 ```
 
 # Work in progress
