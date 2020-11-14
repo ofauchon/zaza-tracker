@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	EEPROM_ADDR_START uint32 = 0x08080000
-	EEPROM_ADDR_END   uint32 = 0x08080FFF
+	EEPROM_ADDR_START = 0x08080000
+	EEPROM_ADDR_END   = 0x08080FFF
 )
 
 type Eeprom struct {
@@ -28,11 +28,31 @@ func (e *Eeprom) Unlock() {
 func (e *Eeprom) Lock() {
 }
 
-func (e *Eeprom) ReadUint8(pos uint32) uint8 {
+// ReadU8 Reads uint8 value
+func (e *Eeprom) ReadU8(pos uint32) uint8 {
 	return *(*uint8)(unsafe.Pointer(uintptr(0x08080000 + pos)))
 }
 
-func (e *Eeprom) WriteUint8(val uint8, pos uint32) {
+// ReadU8 Reads []uint8 array
+func (e *Eeprom) ReadU8Array(pos, size int) []uint8 {
+	var r []uint8
+	for i := 0; i < size; i++ {
+		v := *(*uint8)(unsafe.Pointer(uintptr(0x08080000 + pos + i)))
+		r = append(r, v)
+	}
+	return r
+}
+
+// ReadU8 Write uint8
+func (e *Eeprom) WriteU8(val uint8, pos uint32) {
 	ptr := unsafe.Pointer(uintptr(EEPROM_ADDR_START + pos))
 	*(*uint8)(ptr) = val
+}
+
+// WriteU8Array writes []uint8 in eeprom
+func (e *Eeprom) WriteU8Array(val []uint8, pos int) {
+	for i := 0; i < len(val); i++ {
+		ptr := unsafe.Pointer(uintptr(EEPROM_ADDR_START + pos + i))
+		*(*uint8)(ptr) = val[i]
+	}
 }

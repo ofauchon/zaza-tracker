@@ -67,15 +67,13 @@ var (
 	keypressed           bool
 )
 
-var e2p drivers.Eeprom
+var e2p drivers.Eeprom // Eeprom driver
 
-// Channel for packet RX
-var rxPktChan chan []byte
+var rxPktChan chan []byte // Channel for packet RX
 
-//
-// LORA JOIN
-//
+var config drivers.Config
 
+// loraJoin connects Lorawan network
 func loraJoin() ([]byte, error) {
 
 	tmp1, err1 := hex.DecodeString(myAppKey)
@@ -114,6 +112,15 @@ func processCmd(cmd string) {
 		loraRadio.Reset()
 		println("Reset done !")
 
+	case "confr":
+		config.Read(e2p)
+
+	case "conft":
+		config.Test()
+
+	case "confw":
+		config.Write(e2p)
+
 	case "eepw":
 		if len(ss) == 3 {
 			t1, err := strconv.ParseUint(ss[1], 16, 64)
@@ -124,7 +131,7 @@ func processCmd(cmd string) {
 				if err == nil {
 					e2p.Unlock()
 					println("Write eeprom : offset:", p, " byte:", b)
-					e2p.WriteUint8(b, p)
+					e2p.WriteU8(b, p)
 				}
 			} else {
 				println("Wrong byte value")
@@ -138,7 +145,7 @@ func processCmd(cmd string) {
 		if len(ss) == 2 {
 			p, err := strconv.ParseUint(ss[1], 16, 64)
 			if err == nil {
-				v := e2p.ReadUint8(uint32(p))
+				v := e2p.ReadU8(uint32(p))
 				println("Read eeprom pos:", p, " value:", v)
 
 			} else {
