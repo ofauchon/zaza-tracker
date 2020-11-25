@@ -3,7 +3,6 @@ package main
 import (
 	"device/stm32"
 	"encoding/hex"
-	"errors"
 	"machine"
 	"runtime/interrupt"
 	"runtime/volatile"
@@ -16,12 +15,13 @@ import (
 	"tinygo.org/x/drivers/lora/sx127x"
 )
 
-// Lorawan tests
-const (
+// Lorawan tests (The thing network)
+/*
+    device = "track01"
 	myAppKey  = "2C44FCF86C7B767B8FD3124FCE7A3216"
 	myDevEUI  = "D0000000000AA001"
-	myJoinEUI = "A000000000000102"
-)
+	myJoinEUI/AppEUI = "A000000000000102"
+*/
 
 const (
 	led    = machine.LED_RED
@@ -71,55 +71,106 @@ var e2p drivers.Eeprom // Eeprom driver
 
 var rxPktChan chan []byte // Channel for packet RX
 
-var config drivers.Config
+var config *drivers.ATConfig
 
 // loraJoin connects Lorawan network
-func loraJoin() ([]byte, error) {
+func loraJoin() {
 
-	tmp1, err1 := hex.DecodeString(myAppKey)
-	tmp2, err2 := hex.DecodeString(myDevEUI)
-	tmp3, err3 := hex.DecodeString(myJoinEUI)
-	if err1 != nil && err2 != nil && err3 != nil {
-		e := errors.New("Bad AppKey, DevEUI, JoinEUI")
-		return nil, e
+	l := &drivers.LightLW{}
+	l.Otaa.AppEUI = config.GetCurrentValue("APPEUI").([8]uint8)
+	l.Otaa.DevEUI = config.GetCurrentValue("DEVEUI").([8]uint8)
+	l.Otaa.AppKey = config.GetCurrentValue("APPKEY").([16]uint8)
+	l.Otaa.DevNonce = uint16(0xCC85)
 
-	}
-	var kAppKey [16]byte
-	var kDevEUI, kJoinEUI [8]byte
+	j := l.GenerateJoinRequest()
 
-	copy(kAppKey[:], tmp1[0:16])
-	copy(kDevEUI[:], tmp2[0:8])
-	copy(kJoinEUI[:], tmp3[0:8])
+	println(hex.EncodeToString(j))
 
-	return nil, nil
 }
 
-// processCmd parses commands and execute actions
+// processCmd() parses commands and execute actions
 func processCmd(cmd string) {
+
+	println("Processing [" + cmd + "]")
+	if len(cmd) > 6 && strings.HasPrefix(cmd, "AT+") && strings.Contains(cmd, "=") {
+		// Processing AT+XXX=YYY Set configuration
+		r := strings.Split(cmd, "+")
+		if len(r) == 2 && len(r[1]) > 3 {
+			s := strings.Split(r[1], "=")
+			if len(s) == 2 && len(s[0]) > 0 && len(s[1]) > 0 {
+				cf := config.GetConfigEntry(s[0])
+				if cf != nil {
+					switch cf.FactoryValue.(type) {
+					case []uint8:
+						bb, e := hex.DecodeString(s[1])
+						if e == nil && len(bb) == len(cf.FactoryValue.([]uint8)) {
+							cf.CurrentValue = bb
+							println("Set " + s[0] + " OK")
+						} else {
+							println("Wrong parameter, expected [" + string(len(bb)) + "]uint8")
+						}
+					case uint32:
+						i, err := strconv.ParseInt(s[1], 10, 64)
+						if err == nil && i > 0x0 && i < 0xFFFFFFFF {
+							cf.CurrentValue = uint32(i)
+						} else {
+							println("Wrong parameter, expected uint32")
+						}
+					case uint8:
+						i, err := strconv.Atoi(s[1])
+						if err == nil && i > 0x0 && i < 0xFF {
+							cf.CurrentValue = uint8(i)
+						} else {
+							println("Wrong parameter, expected uint8")
+						}
+					}
+				} else {
+					println("Unknown " + s[0] + " config parameter.")
+				}
+			}
+		}
+	}
+
 	ss := strings.Split(cmd, " ")
 	switch ss[0] {
+
+	case "AT+CFG":
+		println("Configuration Dump:")
+		println(config.DumpConfig())
+	case "AT+FDR":
+		println("Resetting configuration to factory defaults")
+		config.FactoryReset()
+	case "ATZ":
+		println("System reboot Now")
+		stm32.SCB.AIRCR.Set(uint32(0x05fa0004))
+	case "AT+VER":
+		println("1.3 EU868 ZAZA")
+	case "AT+HWVER":
+		println("L70-RL")
+
 	case "help":
-		println("reset: reset sx1276 device")
-		println("loratx <hex> : send packet <hex>")
-		println("lorarx : listen to lora packets until keypressed")
-		println("eepw <offset> <byte> : write <byte> at <eeprom_start+offset>, (use hex)")
-		println("eepr <offset> <count>: read <count> bytes at <eeprom_start+offset> (use hex)")
-		println("get: sx1276config|regs")
-		println("set: freq <868300000> set transceiver frequency (in Hz)")
-		//println("mode: <rx,tx,standby,sleep>")
+		//TODO
+	case "conf":
+		if len(ss) > 1 {
+			switch ss[1] {
+			case "read":
+				//config.Read(e2p)
+			case "write":
+				//config.Write(e2p)
+			case "default":
+				//config.Default()
+			case "dump":
+				//config.Dump()
+			}
+		}
 
-	case "reset":
-		loraRadio.Reset()
-		println("Reset done !")
-
-	case "confr":
-		config.Read(e2p)
-
-	case "conft":
-		config.Test()
-
-	case "confw":
-		config.Write(e2p)
+	case "lorawan":
+		if len(ss) > 1 {
+			switch ss[1] {
+			case "join":
+				loraJoin()
+			}
+		}
 
 	case "eepw":
 		if len(ss) == 3 {
@@ -382,12 +433,20 @@ func hw_init() {
 //----------------------------------------------------------------------------------------------//
 func main() {
 
+	config = drivers.NewATConfig()
+
 	// Packets will be sent to rxPktChan Channel
 	rxPktChan = make(chan []byte)
 
 	hw_init()
 
 	println("*** Zaza Receiver ***")
+
+	if e2p.ReadU8(0) == 0x0F {
+		println("*** Eeprom contains 0x0F at pos 0\n***Loading configuration")
+		//	config.Read(e2p)
+	}
+
 	println("Press ? for commands.")
 
 	// 3 Green blinks at start
