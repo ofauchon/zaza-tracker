@@ -1,8 +1,6 @@
 package drivers
 
 import (
-	"fmt"
-
 	"github.com/jacobsa/crypto/cmac"
 )
 
@@ -126,12 +124,6 @@ func (r *LightLW) SendData(payload []uint8) {
 	*/
 }
 
-// GenerateDevNounce Generate random DevNounce
-func (r *LightLW) generateDevNounce() uint16 {
-	val := uint16(0) // Fixme with real random value
-	return val
-}
-
 // SendJoinRequest Sends a Lorawan Join Request
 /*
  * For a not-encrypted Join Request like 00DC0000D07ED5B3701E6FEDF57CEEAF0085CC587FE913
@@ -164,8 +156,9 @@ func (r *LightLW) GenerateJoinRequest() []uint8 {
 	}
 
 	// Load DevNounce
-	fmt.Println("Warning => No random DevNounce")
-	//FIXME r.Otaa.DevNonce = r.generateDevNounce()
+	if r.Otaa.DevNonce == 0 {
+		println("Warning: LoraLW DevNonce=0")
+	}
 	rfmBuffer = append(rfmBuffer, uint8(r.Otaa.DevNonce&0x00FF))
 	rfmBuffer = append(rfmBuffer, uint8((r.Otaa.DevNonce>>8)&0x00FF))
 

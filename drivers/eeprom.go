@@ -16,11 +16,11 @@ type Eeprom struct {
 // Unlock removes eeprom write protection
 func (e *Eeprom) Unlock() {
 	// Wait Flash not busy
-	for stm32.Flash.SR.HasBits(stm32.Flash_SR_BSY) {
+	for stm32.FLASH.SR.HasBits(stm32.Flash_SR_BSY) {
 	}
-	if stm32.Flash.PECR.HasBits(stm32.Flash_PECR_PELOCK) {
-		stm32.Flash.PEKEYR.Set(0x89ABCDEF)
-		stm32.Flash.PEKEYR.Set(0x02030405)
+	if stm32.FLASH.PECR.HasBits(stm32.Flash_PECR_PELOCK) {
+		stm32.FLASH.PEKEYR.Set(0x89ABCDEF)
+		stm32.FLASH.PEKEYR.Set(0x02030405)
 	}
 }
 
