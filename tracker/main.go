@@ -2,7 +2,6 @@ package main
 
 import (
 	"device/stm32"
-	"encoding/hex"
 	"machine"
 	"runtime/interrupt"
 	"strconv"
@@ -34,6 +33,7 @@ var (
 	send_delay           = int(0)
 	cycle                uint32
 	btnCount             uint32
+	enableLoraInts       bool
 
 	loraConfig = sx127x.Config{
 		Frequency:            868300000,
@@ -236,24 +236,18 @@ func GpsDisable() {
 
 // Interrupt handler from RFM95_DIO0 (RxDone Event) on PB13
 func gpios_int(inter interrupt.Interrupt) {
+
 	irqStatus := stm32.EXTI.PR.Get()
 
 	if (irqStatus & stm32.EXTI_PR_PIF10) > 0 { // PC10 : DIO1 : RX_TMOUT
-		stm32.EXTI.PR.Set(irqStatus)
-		println("LORA: Interrupt RxTimeout")
 		loraRadio.DioIntHandler()
-	}
-	if (irqStatus & stm32.EXTI_PR_PIF13) > 0 { // PC13 : DIO0 : RX_DONE
 		stm32.EXTI.PR.Set(irqStatus)
-		println("LORA: Interrupt RxDone")
+	} else if (irqStatus & stm32.EXTI_PR_PIF13) > 0 { // PC13 : DIO0 : RX_DONE/TXDONE
 		loraRadio.DioIntHandler()
-	}
-
-	if (irqStatus & stm32.EXTI_PR_PIF14) > 0 { // PB14 : Button
 		stm32.EXTI.PR.Set(irqStatus)
+	} else if (irqStatus & stm32.EXTI_PR_PIF14) > 0 { // PB14 : Button
 		btnCount++
-		println("Button: count:", btnCount)
-
+		stm32.EXTI.PR.Set(irqStatus)
 	}
 
 }
@@ -292,16 +286,16 @@ func hw_init() {
 	loraRadio.Init(loraConfig)
 	loraRadio.ConfigureLoraModem()
 
-	// Configure interrupt for DIO0 (PC13)
-	machine.RFM95_DIO0_PIN.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	// Configure interrupt for DIO0 (PC13) ... We watch after rising edge
+	machine.RFM95_DIO0_PIN.Configure(machine.PinConfig{Mode: machine.PinInputFloating})
 	stm32.SYSCFG.EXTICR4.ReplaceBits(stm32.SYSCFG_EXTICR4_EXTI13_PC13, 0xf, stm32.SYSCFG_EXTICR4_EXTI13_Pos) // Enable PORTC On line 13
-	stm32.EXTI.FTSR.SetBits(stm32.EXTI_FTSR_FT13)                                                            // Detect Falling Edge of EXTI13 Line
+	stm32.EXTI.FTSR.SetBits(stm32.EXTI_RTSR_RT13)                                                            // Detect Rising Edge of EXTI13 Line
 	stm32.EXTI.IMR.SetBits(stm32.EXTI_IMR_IM13)                                                              // Enable EXTI13 line
 
-	// Configure interrupt for DIO1 (PB10)
-	machine.RFM95_DIO1_PIN.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	// Configure interrupt for DIO1 (PB10)... We watch after rising edge
+	machine.RFM95_DIO1_PIN.Configure(machine.PinConfig{Mode: machine.PinInputFloating})
 	stm32.SYSCFG.EXTICR3.ReplaceBits(stm32.SYSCFG_EXTICR3_EXTI10_PB10, 0xf, stm32.SYSCFG_EXTICR3_EXTI10_Pos) // Enable PORTC On line 10
-	stm32.EXTI.FTSR.SetBits(stm32.EXTI_FTSR_FT10)                                                            // Detect Falling Edge of EXTI10 Line
+	stm32.EXTI.FTSR.SetBits(stm32.EXTI_RTSR_RT10)                                                            // Detect Rising Edge of EXTI10 Line
 	stm32.EXTI.IMR.SetBits(stm32.EXTI_IMR_IM10)                                                              // Enable EXTI10 line
 
 	// Enable interrupts
@@ -313,7 +307,7 @@ func hw_init() {
 	go serial(uartConsole)
 
 	// Start GPS Device
-	GpsEnable()
+	//GpsEnable()
 	go gpsTask(gps1, parser1)
 
 }
@@ -361,18 +355,26 @@ func loraJoin(config *drivers.ATConfig) {
 	l.Otaa.AppEUI = [8]uint8{0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02}
 	l.Otaa.DevEUI = [8]uint8{0xDE, 0xAD, 0x00, 0x00, 0x00, 0x0A, 0xA0, 0x01}
 	l.Otaa.AppKey = [16]uint8{0x2C, 0x44, 0xFC, 0xF8, 0x6C, 0x7B, 0x76, 0x7B, 0x8F, 0xD3, 0x12, 0x4F, 0xCE, 0x7A, 0x32, 0x16}
-
 	l.Otaa.DevNonce = uint16(getRand())
 
-	j := l.GenerateJoinRequest()
-	println("Nonce: ", l.Otaa.DevNonce)
-	println("Join Request Bytes: ", hex.EncodeToString(j))
-
 	// Send join packet
+	j := l.GenerateJoinRequest()
+	loraRadio.LoraSleep()
 	loraRadio.TxLora([]byte(j))
+	time.Sleep(1 * time.Second) // 1s should be enough for TX
 
-	loraRadio.GoSingleReceive()
-	println("Lora Join packet send, now in RX")
+	// Go Sleep and Receive
+	//loraRadio.LoraSleep()
+	loraRadio.GoReceive()
+
+	go func() {
+		ch := loraRadio.GetRxPktChannel()
+		for {
+			a := <-ch
+			println("Size:", len(a))
+		}
+		time.Sleep(1 * time.Second) // 1s should be enough for TX
+	}()
 
 }
 
@@ -398,7 +400,6 @@ func main() {
 	cycle = 1
 	for {
 
-		print(".")
 		machine.LED_GREEN.Set(false)
 		machine.LED_RED.Set(false)
 		machine.LED_BLUE.Set(false)
@@ -425,7 +426,7 @@ func main() {
 
 		if btnCount > 0 {
 			btnCount = 0
-			println("Button: 5 time pressed, join lora now")
+			println("Button pressed, join lora now")
 			loraJoin(config)
 			//loraRadio.TxLora([]byte(pkt))
 
