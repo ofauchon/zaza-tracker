@@ -11,6 +11,7 @@ import (
 	"errors"
 
 	"github.com/ofauchon/zaza-tracker/drivers"
+	"github.com/ofauchon/zaza-tracker/libs"
 	"tinygo.org/x/drivers/gps"
 	"tinygo.org/x/drivers/lora/sx127x"
 )
@@ -346,7 +347,7 @@ lora_pkt_fwd[1854]: RXTX~ {"txpk":{"imme":false,"tmst":1780631811,"freq":868.3,"
 
 */
 func loraJoin(config *drivers.ATConfig) {
-	l := &drivers.LightLW{}
+	l := &libs.LightLW{}
 
 	//l.Otaa.AppEUI = config.GetCurrentValue("APPEUI").([8]uint8)
 	//l.Otaa.DevEUI = config.GetCurrentValue("DEVEUI").([8]uint8)
