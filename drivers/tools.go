@@ -1,7 +1,7 @@
 package drivers
 
 // byteToHex return string hex representation of byte
-func byteToHex(b byte) string {
+func ByteToHex(b byte) string {
 	bb := (b >> 4) & 0x0F
 	ret := ""
 	if bb < 10 {

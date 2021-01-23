@@ -370,11 +370,24 @@ func loraJoin(config *drivers.ATConfig) {
 	go func() {
 		ch := loraRadio.GetRxPktChannel()
 		for {
-			a := <-ch
-			println("Size:", len(a))
+			// Wait for incominl packet
+			pk := <-ch
+			println("Size:", len(pk))
+			for i := 0; i < len(pk); i++ {
+				print(drivers.ByteToHex(pk[i]), "")
+			}
+			println("")
+
+			// Decode packet
+			dec := l.DecodeJoinAccept(pk)
+			for i := 0; i < len(dec); i++ {
+				print(drivers.ByteToHex(dec[i]), "")
+			}
+			println("")
+
+			time.Sleep(100 * time.Millisecond)
 		}
-		time.Sleep(1 * time.Second) // 1s should be enough for TX
-	}()
+	}() //Routine
 
 }
 

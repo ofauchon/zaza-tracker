@@ -172,18 +172,18 @@ func (a *ATConfig) DumpConfig() string {
 				case []uint8:
 					bb := v.FactoryValue.([]uint8)
 					for i := 0; i < len(bb); i++ {
-						st += byteToHex(bb[i])
+						st += ByteToHex(bb[i])
 					}
 					st += "\n"
 				case uint8:
 					bb := v.CurrentValue.(uint8)
-					st += byteToHex(bb) + "\n"
+					st += ByteToHex(bb) + "\n"
 				case uint32:
 					bb := v.CurrentValue.(uint32)
-					st += "0x" + byteToHex(uint8((bb>>24)&0xF))
-					st += byteToHex(uint8((bb >> 16) & 0xF))
-					st += byteToHex(uint8((bb >> 8) & 0xF))
-					st += byteToHex(uint8(bb&0xF)) + "\n"
+					st += "0x" + ByteToHex(uint8((bb>>24)&0xF))
+					st += ByteToHex(uint8((bb >> 16) & 0xF))
+					st += ByteToHex(uint8((bb >> 8) & 0xF))
+					st += ByteToHex(uint8(bb&0xF)) + "\n"
 				}
 			}
 		}
