@@ -1,7 +1,11 @@
 package libs
 
 import (
+	"bytes"
 	"crypto/aes"
+	"encoding/binary"
+	"errors"
+	"math"
 
 	"github.com/jacobsa/crypto/cmac"
 )
@@ -10,17 +14,23 @@ import (
 This code was inspired from various projects:
 https://github.com/BeelanMX/Beelan-LoRaWAN/blob/master/src/arduino-rfm/LoRaMAC.cpp
 https://github.com/brocaar/lorawan
-https://runkit.com/avbentem/deciphering-a-lorawan-otaa-join-accept
+&https://github.com/trnlink/ls/blob/b5e69ea94d6650c9217997a5db4aa8a1cea68598/pkg/crypto/data_messages.go
+http://www.techplayon.com/lora-device-activation-call-flow-join-procedure-using-otaa-and-abp/
 */
 
 const (
 	maxUploadPayloadSize = 220
 )
 
-//Struct used to store session data of a LoRaWAN session
+type LoraEvent struct {
+	eventType int
+	eventData []byte
+}
+
+//LoraSession is used to store session data of a LoRaWAN session
 type LoraSession struct {
-	NwkSKey      [8]uint8
-	AppSKey      [8]uint8
+	NwkSKey      [16]uint8
+	AppSKey      [16]uint8
 	DevAddr      [4]uint8
 	FrameCounter uint16
 	CFList       [16]uint8
@@ -28,16 +38,17 @@ type LoraSession struct {
 	DLSettings   uint8
 }
 
+//LoraOtaa is used to store session data of a LoRaWAN session
 type LoraOtaa struct {
 	DevEUI   [8]uint8
 	AppEUI   [8]uint8
 	AppKey   [16]uint8
-	DevNonce uint16
+	DevNonce [2]uint8
 	AppNonce [3]uint8
 	NetID    [3]uint8
 }
 
-//Struct to store information of a LoRaWAN message to transmit or received
+//LoraMsg is used to store information of a LoRaWAN message to transmit or received
 type LoraMsg struct {
 	MacHeader    uint8
 	DevAddr      [4]uint8
@@ -49,7 +60,7 @@ type LoraMsg struct {
 	Direction    uint8
 }
 
-//Struct used for storing settings of the mote
+//LoraSettings  used for storing settings of the mote
 type LoraSettings struct {
 	Confirm        uint8 //0x00 Unconfirmed, 0x01 Confirmed
 	Mport          uint8 //Port 1-223
@@ -82,79 +93,7 @@ type LightLW struct {
 	Otaa     LoraOtaa
 }
 
-// GenerateJoinRequest Generates a Join request
-/*
- *     Message Type = Join Request
- *           AppEUI = 70B3D57ED00000DC
- *           DevEUI = 00AFEE7CF5ED6F1E
- *         DevNonce = CC85
- *              MIC = 587FE913
- *
- * =>  00DC0000D07ED5B3701E6FEDF57CEEAF0085CC587FE913
- */
-func (r *LightLW) GenerateJoinRequest() []uint8 {
-
-	var rfmBuffer []uint8
-	// Initialise message
-	lmsg := &LoraMsg{}
-	lmsg.MacHeader = 0x00
-	lmsg.Direction = 0x00
-
-	rfmBuffer = append(rfmBuffer, lmsg.MacHeader)
-
-	// Load AppEUI
-	for i := 0; i < 8; i++ {
-		rfmBuffer = append(rfmBuffer, r.Otaa.AppEUI[7-i])
-	}
-
-	// Load DevEUI
-	for i := 0; i < 8; i++ {
-		rfmBuffer = append(rfmBuffer, r.Otaa.DevEUI[7-i])
-	}
-
-	// Load DevNounce
-	if r.Otaa.DevNonce == 0 {
-		println("Warning: LoraLW DevNonce=0")
-	}
-	rfmBuffer = append(rfmBuffer, uint8(r.Otaa.DevNonce&0x00FF))
-	rfmBuffer = append(rfmBuffer, uint8((r.Otaa.DevNonce>>8)&0x00FF))
-
-	// ADD Mic
-	mic := r.CalculateUplinkJoinMIC(rfmBuffer, r.Otaa.AppKey)
-
-	rfmBuffer = append(rfmBuffer, mic[:]...)
-
-	return rfmBuffer
-}
-
-func (r *LightLW) EncryptAES(key []byte, data []byte) []byte {
-
-	println("key size: ", len(key))
-	println("data size: ", len(data))
-
-	// create cipher
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		println("Encrypt error 1")
-		return nil
-	}
-	// allocate space for ciphered data
-	out := make([]byte, len(data))
-
-	/*
-		iv := []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-		mode := cipher.NewCBCEncrypter(block, iv)
-		mode.CryptBlocks(out, data)
-	*/
-	// encrypt
-	i := 0
-	block.Encrypt(out[i:], data[i:]) //<<<<<<<<<<<<< On ne fait que le premier bloc ?
-	i += aes.BlockSize
-	block.Encrypt(out[i:], data[i:]) //<<<<<<<<<<<<< On ne fait que le premier bloc ?
-	// return hex string
-	return out
-}
-
+// revert inverts de order of a given byte slice
 func revert(s []byte) []byte {
 	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
 		s[i], s[j] = s[j], s[i]
@@ -162,50 +101,81 @@ func revert(s []byte) []byte {
 	return s
 }
 
-// Decodes Join Accept Packet
-/* Join Accept Payload : 204DD85AE608B87FC4889970B7D2042C9E72959B0057AED6094B16003DF12DE145
- * Application Key: B6B53F4A168A7A88BDF7EA135CE9CFCA
- * Corresponds to
- *     Message Type = Join Accept
- *         AppNonce = E5063A
- *            NetId = 000013
- *          DevAddr = 26012E43
- *       DLSettings = 03
- *          RXDelay = 01
- *           CFList = 184F84E85684B85E84886684586E8400
- *                  = decimal 8671000, 8673000, 8675000, 8677000, 8679000
- *              MIC = 55121DE0
- *
- * https://runkit.com/avbentem/deciphering-a-lorawan-otaa-join-accept
- *
- * The network server uses an AES decrypt operation in ECB mode to encrypt the join-accept
- * message so that the end-device can use an AES encrypt operation to decrypt the message.
- * This way an end-device only has to implement AES encrypt but not AES decrypt.
+// GenerateJoinRequest Generates a Lora Join request
+func (r *LightLW) GenerateJoinRequest() []uint8 {
+	var buf []uint8
+	buf = append(buf, 0x00)
+	buf = append(buf, revert(r.Otaa.AppEUI[:])...)
+	buf = append(buf, revert(r.Otaa.DevEUI[:])...)
+	buf = append(buf, r.Otaa.DevNonce[1])
+	buf = append(buf, r.Otaa.DevNonce[0])
+	mic := r.CalculateUplinkJoinMIC(buf, r.Otaa.AppKey)
+	buf = append(buf, mic[:]...)
+	return buf
+}
 
-join received      :204dd85ae608b87fc4889970b7d2042c9e72959b0057aed6094b16003df12de145
-join without 0x20: :  4dd85ae608b87fc4889970b7d2042c9e72959b0057aed6094b16003df12de145
-join encoded:         3a06e5130000432e01260301184f84e85684b85e84886684586e840055121de0
+// DecodeJoinAccept Decodes a Lora Join Accept packet
+func (r *LightLW) DecodeJoinAccept(phyPload []uint8) error {
 
-Decoded:
-// Size (bytes):     3       3       4         1          1     (16) Optional   4
-// Join Accept:  AppNonce  NetID  DevAddr  DLSettings  RxDelay      CFList     MIC
-*/
-func (r *LightLW) DecodeJoinAccept(data []uint8) []uint8 {
-	d := data[1:] // Remove trailing 0x20
-	k := []byte(r.Otaa.AppKey[:])
-	c := r.EncryptAES(k, d)
+	appK := []byte(r.Otaa.AppKey[:])
 
-	copy(r.Otaa.AppNonce[:], revert(c[0:3]))
-	copy(r.Otaa.NetID[:], revert(c[3:6]))
-	copy(r.Session.DevAddr[:], revert(c[6:10]))
-	r.Session.DLSettings = c[10]
-	r.Session.RXDelay = c[11]
+	data := phyPload[1:] // Remove trailing 0x20
 
-	if len(c) > 16 {
-		copy(r.Session.CFList[:], c[12:28])
+	// Prepare AES Cipher
+	block, err := aes.NewCipher(appK)
+	if err != nil {
+		return errors.New("Lora Cipher error 1")
 	}
 
-	return c
+	buf := make([]byte, len(data))
+	for k := 0; k < len(data)/aes.BlockSize; k++ {
+		block.Encrypt(buf[k*aes.BlockSize:], data[k*aes.BlockSize:])
+	}
+
+	copy(r.Otaa.AppNonce[:], buf[0:3])
+	copy(r.Otaa.NetID[:], buf[3:6])
+	copy(r.Session.DevAddr[:], buf[6:10])
+	r.Session.DLSettings = buf[10]
+	r.Session.RXDelay = buf[11]
+
+	if len(buf) > 16 {
+		copy(r.Session.CFList[:], buf[12:28])
+	}
+	rxMic := buf[len(buf)-4:]
+
+	dataMic := []byte{}
+	dataMic = append(dataMic, phyPload[0])
+	dataMic = append(dataMic, r.Otaa.AppNonce[:]...)
+	dataMic = append(dataMic, r.Otaa.NetID[:]...)
+	dataMic = append(dataMic, r.Session.DevAddr[:]...)
+	dataMic = append(dataMic, r.Session.DLSettings)
+	dataMic = append(dataMic, r.Session.RXDelay)
+	dataMic = append(dataMic, r.Session.CFList[:]...)
+	computedMic := r.CalculateUplinkJoinMIC(dataMic[:], r.Otaa.AppKey)
+	if !bytes.Equal(computedMic[:], rxMic[:]) {
+		return errors.New("Wrong Mic")
+	}
+
+	// Generate NwkSKey
+	// NwkSKey = aes128_encrypt(AppKey, 0x01|AppNonce|NetID|DevNonce|pad16)
+	sKey := []byte{}
+	sKey = append(sKey, 0x01)
+	sKey = append(sKey, r.Otaa.AppNonce[:]...)
+	sKey = append(sKey, r.Otaa.NetID[:]...)
+	sKey = append(sKey, revert(r.Otaa.DevNonce[:])...)
+	for i := 0; i < 7; i++ {
+		sKey = append(sKey, 0x00) // PAD to 16
+	}
+	block.Encrypt(buf, sKey)
+	copy(r.Session.NwkSKey[:], buf[0:16])
+
+	// Generate AppSKey
+	// AppSKey = aes128_encrypt(AppKey, 0x02|AppNonce|NetID|DevNonce|pad16)
+	sKey[0] = 0x02
+	block.Encrypt(buf, sKey)
+	copy(r.Session.AppSKey[:], buf[0:16])
+
+	return nil
 }
 
 //----------------------STOP HERE ---------------
@@ -258,47 +228,38 @@ func (r *LightLW) SendData(payload []uint8) {
 	*/
 }
 
-// encryptPayload encrypts given payload
-func (r *LightLW) encryptPayload(payload []uint8, lMsg LoraMsg) {
-
-	i := uint8(0)
-	j := uint8(0)
-	numBlock := uint8(len(payload) / 16)
-	incompleteBlockSize := len(payload) % 16
-	var blocA [16]uint8
-
-	if incompleteBlockSize > 0 {
-		numBlock++
+func (r *LightLW) encryptMessage(dir uint8, fCnt uint32, payload []byte, isFOpts bool) ([]byte, error) {
+	k := len(payload) / aes.BlockSize
+	if len(payload)%aes.BlockSize != 0 {
+		k++
 	}
-
-	for i = 0; i < numBlock; i++ {
-		blocA[0] = 0x01
-		blocA[1] = 0x00
-		blocA[2] = 0x00
-		blocA[3] = 0x00
-		blocA[4] = 0x00
-		blocA[5] = lMsg.Direction
-		blocA[6] = lMsg.DevAddr[3]
-		blocA[7] = lMsg.DevAddr[2]
-		blocA[8] = lMsg.DevAddr[1]
-		blocA[9] = lMsg.DevAddr[0]
-		blocA[10] = uint8(r.Session.FrameCounter & 0x00FF)
-		blocA[11] = uint8((r.Session.FrameCounter >> 8) & 0x00FF)
-
-		blocA[12] = 0x00
-		blocA[13] = 0x00
-		blocA[14] = 0x00
-
-		blocA[15] = i + 1
-
-		if i != (numBlock - 1) {
-			for j = 0; j < 16; j++ {
-
-			}
+	if k > math.MaxUint8 {
+		return nil, errors.New("Payload too big !")
+	}
+	encrypted := make([]byte, 0, k*16)
+	cipher, err := aes.NewCipher(r.Session.AppSKey[:])
+	if err != nil {
+		panic(err) // types.AES128Key
+	}
+	var a [aes.BlockSize]byte
+	a[0] = 0x01
+	a[5] = dir
+	copy(a[6:10], revert(r.Session.DevAddr[:]))
+	binary.LittleEndian.PutUint32(a[10:14], fCnt)
+	var s [aes.BlockSize]byte
+	var b [aes.BlockSize]byte
+	for i := uint8(0); i < uint8(k); i++ {
+		copy(b[:], payload[i*aes.BlockSize:])
+		if !isFOpts {
+			a[15] = i + 1
 		}
-
+		cipher.Encrypt(s[:], a[:])
+		for j := 0; j < aes.BlockSize; j++ {
+			b[j] = b[j] ^ s[j]
+		}
+		encrypted = append(encrypted, b[:]...)
 	}
-
+	return encrypted[:len(payload)], nil
 }
 
 /* Compute MIC for Join Request
@@ -306,6 +267,7 @@ func (r *LightLW) encryptPayload(payload []uint8, lMsg LoraMsg) {
  * MIC = cmac[0..3]
  */
 func (r *LightLW) CalculateUplinkJoinMIC(micBytes []uint8, key [16]uint8) [4]uint8 {
+
 	var mic [4]uint8
 
 	hash, _ := cmac.New(key[:])

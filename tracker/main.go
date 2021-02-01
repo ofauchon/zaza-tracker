@@ -4,21 +4,24 @@ import (
 	"device/stm32"
 	"machine"
 	"runtime/interrupt"
-	"strconv"
 	"strings"
 	"time"
 
 	"errors"
 
-	"github.com/ofauchon/zaza-tracker/drivers"
 	"github.com/ofauchon/zaza-tracker/libs"
 	"tinygo.org/x/drivers/gps"
 	"tinygo.org/x/drivers/lora/sx127x"
 )
 
 const (
-	DBG_GPS = 1
+	DBG_GPS  = 1
+	INT_DIO0 = 100
+	INT_DIO1 = 101
+	INT_BTN  = 200
 )
+
+var pendingInt uint8
 
 type status struct {
 	fix   *gps.Fix
@@ -29,6 +32,7 @@ type status struct {
 var (
 	uartConsole, uartGps *machine.UART
 	loraRadio            sx127x.Device
+	loraStack            libs.LightLW
 	st                   status
 	send_data            = string("")
 	send_delay           = int(0)
@@ -99,22 +103,23 @@ func processCmd(cmd string) error {
 			}
 		}
 
-	case "set":
-		if len(ss) == 3 {
-			switch ss[1] {
-			case "freq":
-				val, _ := strconv.ParseUint(ss[2], 10, 32)
-				//	d.SetFrequency(uint32(val))
-				println("Freq set to ", val)
-			case "power":
-				val, _ := strconv.ParseUint(ss[2], 10, 32)
-				//	d.SetTxPower(uint8(val))
-				println("TxPower set to ", val)
-			}
-		} else {
-			println("invalid use of set command")
-		}
-
+		/*
+			case "set":
+				if len(ss) == 3 {
+					switch ss[1] {
+					case "freq":
+						val, _ := strconv.ParseUint(ss[2], 10, 32)
+						//	d.SetFrequency(uint32(val))
+						println("Freq set to ", val)
+					case "power":
+						val, _ := strconv.ParseUint(ss[2], 10, 32)
+						//	d.SetTxPower(uint8(val))
+						println("TxPower set to ", val)
+					}
+				} else {
+					println("invalid use of set command")
+				}
+		*/
 	case "mode":
 		if len(ss) == 2 {
 			switch ss[1] {
@@ -148,13 +153,13 @@ func processCmd(cmd string) error {
 
 // serial() function is a gorouting for handling USART rx data
 func serial(serial *machine.UART) string {
-	input := make([]byte, 100) // serial port buffer
+	input := make([]byte, 300) // serial port buffer
 
 	i := 0
 
 	for {
 
-		if i == 100 {
+		if i == 300 {
 			println("Serial Buffer overrun")
 			i = 0
 		}
@@ -237,18 +242,23 @@ func GpsDisable() {
 
 // Interrupt handler from RFM95_DIO0 (RxDone Event) on PB13
 func gpios_int(inter interrupt.Interrupt) {
-
 	irqStatus := stm32.EXTI.PR.Get()
 
 	if (irqStatus & stm32.EXTI_PR_PIF10) > 0 { // PC10 : DIO1 : RX_TMOUT
-		loraRadio.DioIntHandler()
-		stm32.EXTI.PR.Set(irqStatus)
+		stm32.EXTI.PR.Set(stm32.EXTI_PR_PIF10)
+		pendingInt = INT_DIO1
+		//println("gpio_int: DIO1")
+		//loraRadio.DioIntHandler(sx127x.IntDIO1)
 	} else if (irqStatus & stm32.EXTI_PR_PIF13) > 0 { // PC13 : DIO0 : RX_DONE/TXDONE
-		loraRadio.DioIntHandler()
-		stm32.EXTI.PR.Set(irqStatus)
+		stm32.EXTI.PR.Set(stm32.EXTI_PR_PIF13)
+		pendingInt = INT_DIO0
+		//println("gpio_int: DIO0")
+		//loraRadio.DioIntHandler(sx127x.IntDIO0)
 	} else if (irqStatus & stm32.EXTI_PR_PIF14) > 0 { // PB14 : Button
-		btnCount++
-		stm32.EXTI.PR.Set(irqStatus)
+		stm32.EXTI.PR.Set(stm32.EXTI_PR_PIF14)
+		pendingInt = INT_BTN
+		//		println("gpio_int: Button")
+		//		btnCount++
 	}
 
 }
@@ -282,10 +292,13 @@ func hw_init() {
 	csPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	rstPin := machine.PB0
 	rstPin.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	// Prepare Lora
 	loraRadio = sx127x.New(machine.SPI0, csPin, rstPin)
-	// Prepare Lora chil
-	loraRadio.Init(loraConfig)
-	loraRadio.ConfigureLoraModem()
+	loraRadio.SetupLora(loraConfig)
+
+	// Create a chan for sx127X communication
+	//	var radioChan chan sx127x.RadioEvent
+	//	loraRadio.SetRadioEventChan(radioChan)
 
 	// Configure interrupt for DIO0 (PC13) ... We watch after rising edge
 	machine.RFM95_DIO0_PIN.Configure(machine.PinConfig{Mode: machine.PinInputFloating})
@@ -315,81 +328,49 @@ func hw_init() {
 
 //-------- LORA ---------------
 
-// Get Random 32bit
+// getRand() returns Random 32bit
 func getRand() uint32 {
-	// Enable Random Number Generator Clock
+	// Enable PRNG clock and peripheral
 	stm32.RCC.AHBENR.SetBits(stm32.RCC_AHBENR_RNGEN)
-
-	// Enable PRNG periperal
 	if !stm32.RNG.CR.HasBits(stm32.RNG_CR_RNGEN) {
 		stm32.RNG.CR.SetBits(stm32.RNG_CR_RNGEN)
 	}
-
+	// Wait for data ready
 	for !stm32.RNG.SR.HasBits(stm32.RNG_SR_DRDY) {
 	}
-
 	return stm32.RNG.DR.Get()
 }
 
-// loraJoin connects Lorawan network
-/*
- *  Debug : ssh dragino
- * Logread -f
+// LoraWanTask() routing deals with the LoraWan
+func LoraWanTask() {
 
-JOIN RQ
-lora_pkt_fwd[1854]: PKT_FWD~ JOIN_REQ+ {"AppEUI":, "02010000000000A0", "DevEUI":, "01A00A000000ADDE"}
-lora_pkt_fwd[1854]: RXTX~ {"rxpk":[{"tmst":1775631811,"time":"2021-01-15T13:35:12.236455Z","chan":1,"rfch":1,"freq":868.300000,"stat":1,"modu":"LORA","datr":"SF7BW125","codr":"4/5","lsnr":9.2,"rssi":-51,"size":23,"data":"AAIBAAAAAACgAaAKAAAArd44/YpABP8="}]}
+	// We want to be connected all the time
+	for {
+		// Send join packet
+		println("zaza: Send Lorawan Join Request")
+		j := loraStack.GenerateJoinRequest()
+		loraRadio.TxLora([]byte(j))
 
-JOIN ACCEPT
-lora_pkt_fwd[1854]: PKT_FWD~ JOIN_ACCEPT+ {"NetID": "E43833", "DevAddr": "A014F9AB"}
-lora_pkt_fwd[1854]: RXTX~ {"txpk":{"imme":false,"tmst":1780631811,"freq":868.3,"rfch":0,"powe":14,"modu":"LORA","datr":"SF7BW125","codr":"4/5","ipol":true,"size":33,"ncrc":true,"data":"IBkunuQ4M6v5FKDuKo2PUPk7ZSQNrpfEzjXarhHAJn/S"}}
+		// Switch to RX
+		loraRadio.RxLora()
 
-
-*/
-func loraJoin(config *drivers.ATConfig) {
-	l := &libs.LightLW{}
-
-	//l.Otaa.AppEUI = config.GetCurrentValue("APPEUI").([8]uint8)
-	//l.Otaa.DevEUI = config.GetCurrentValue("DEVEUI").([8]uint8)
-	//l.Otaa.AppKey = config.GetCurrentValue("APPKEY").([16]uint8)
-
-	l.Otaa.AppEUI = [8]uint8{0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02}
-	l.Otaa.DevEUI = [8]uint8{0xDE, 0xAD, 0x00, 0x00, 0x00, 0x0A, 0xA0, 0x01}
-	l.Otaa.AppKey = [16]uint8{0x2C, 0x44, 0xFC, 0xF8, 0x6C, 0x7B, 0x76, 0x7B, 0x8F, 0xD3, 0x12, 0x4F, 0xCE, 0x7A, 0x32, 0x16}
-	l.Otaa.DevNonce = uint16(getRand())
-
-	// Send join packet
-	j := l.GenerateJoinRequest()
-	loraRadio.LoraSleep()
-	loraRadio.TxLora([]byte(j))
-	time.Sleep(1 * time.Second) // 1s should be enough for TX
-
-	// Go Sleep and Receive
-	//loraRadio.LoraSleep()
-	loraRadio.GoReceive()
-
-	go func() {
-		ch := loraRadio.GetRxPktChannel()
+		radioChan := loraRadio.GetRadioEventChan()
 		for {
-			// Wait for incominl packet
-			pk := <-ch
-			println("Size:", len(pk))
-			for i := 0; i < len(pk); i++ {
-				print(drivers.ByteToHex(pk[i]), "")
+			println("zaza: wait for RX pkt")
+			event := <-radioChan
+			println("zaza: Got new RX packet")
+			if event.EventType == sx127x.EventRxDone {
+				err := loraStack.DecodeJoinAccept(event.EventData)
+				if (err) != nil {
+					println("zaza: Lorawan Join Accept Error : ", err)
+				} else {
+					println("zaza: Lorawan Join OK")
+				}
 			}
-			println("")
-
-			// Decode packet
-			dec := l.DecodeJoinAccept(pk)
-			for i := 0; i < len(dec); i++ {
-				print(drivers.ByteToHex(dec[i]), "")
-			}
-			println("")
-
-			time.Sleep(100 * time.Millisecond)
 		}
-	}() //Routine
-
+		// Wait 60 sec
+		time.Sleep(60 * time.Second)
+	} //for
 }
 
 //----------------------------------------------------------------------------------------------//
@@ -409,7 +390,18 @@ func main() {
 
 	println("Zaza Tracker")
 
-	config := drivers.NewATConfig()
+	//config := drivers.NewATConfig()
+
+	// Start LoraWan
+	// DEVEUI : A84041000181B365
+	// AppKey : 2C44FCF86C7B767B8FD3124FCE7A3216
+	loraStack.Otaa.AppEUI = [8]uint8{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	loraStack.Otaa.DevEUI = [8]uint8{0xA8, 0x40, 0x41, 0x00, 0x01, 0x81, 0xB3, 0x65}
+	loraStack.Otaa.AppKey = [16]uint8{0x2C, 0x44, 0xFC, 0xF8, 0x6C, 0x7B, 0x76, 0x7B, 0x8F, 0xD3, 0x12, 0x4F, 0xCE, 0x7A, 0x32, 0x16}
+	r := getRand()
+	loraStack.Otaa.DevNonce[0] = uint8(r & 0xFF)
+	loraStack.Otaa.DevNonce[1] = uint8(r & 0xFF00)
+	go LoraWanTask()
 
 	cycle = 1
 	for {
@@ -427,26 +419,29 @@ func main() {
 			}
 		}
 
-		if (cycle % 30) == 0 {
-			if st.fix != nil && st.fix.Valid {
-				pkt := strconv.FormatFloat(float64(st.fix.Latitude), 'f', -1, 32) + ";"
-				pkt += strconv.FormatFloat(float64(st.fix.Longitude), 'f', -1, 32) + ";"
-				pkt += strconv.FormatFloat(float64(st.fix.Altitude), 'f', -1, 32) + ";"
-				pkt += strconv.FormatFloat(float64(st.fix.Heading), 'f', -1, 32) + ";"
-				println("Send Lora: ", pkt)
+		/*
+			if (cycle % 30) == 0 {
+				if st.fix != nil && st.fix.Valid {
+					pkt := strconv.FormatFloat(float64(st.fix.Latitude), 'f', -1, 32) + ";"
+					pkt += strconv.FormatFloat(float64(st.fix.Longitude), 'f', -1, 32) + ";"
+					pkt += strconv.FormatFloat(float64(st.fix.Altitude), 'f', -1, 32) + ";"
+					pkt += strconv.FormatFloat(float64(st.fix.Heading), 'f', -1, 32) + ";"
+					println("Send Lora: ", pkt)
 
+				}
 			}
-		}
+		*/
 
-		if btnCount > 0 {
-			btnCount = 0
-			println("Button pressed, join lora now")
-			loraJoin(config)
-			//loraRadio.TxLora([]byte(pkt))
+		/*
+			if cycle%20 == 0 {
+				println("radio irqflag:", loraRadio.ReadRegister(0x12), " opmode:", loraRadio.ReadRegister(0x1))
+			}
+		*/
 
-		}
+		// Continuous polling
+		loraRadio.CheckIrq()
 
-		time.Sleep(1 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 		cycle++
 	}
 
