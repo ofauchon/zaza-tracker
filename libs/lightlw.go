@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/jacobsa/crypto/cmac"
+	"github.com/ofauchon/zaza-tracker/drivers"
 )
 
 /*
@@ -29,13 +30,14 @@ type LoraEvent struct {
 
 //LoraSession is used to store session data of a LoRaWAN session
 type LoraSession struct {
-	NwkSKey      [16]uint8
-	AppSKey      [16]uint8
-	DevAddr      [4]uint8
-	FrameCounter uint16
-	CFList       [16]uint8
-	RXDelay      uint8
-	DLSettings   uint8
+	NwkSKey    [16]uint8
+	AppSKey    [16]uint8
+	DevAddr    [4]uint8
+	FCntDown   uint32
+	FCntUp     uint32
+	CFList     [16]uint8
+	RXDelay    uint8
+	DLSettings uint8
 }
 
 //LoraOtaa is used to store session data of a LoRaWAN session
@@ -93,45 +95,31 @@ type LightLW struct {
 	Otaa     LoraOtaa
 }
 
-// revert inverts de order of a given byte slice
-func revert(s []byte) []byte {
-	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
-		s[i], s[j] = s[j], s[i]
-	}
-	return s
-}
-
 // GenerateJoinRequest Generates a Lora Join request
-func (r *LightLW) GenerateJoinRequest() []uint8 {
+func (r *LightLW) GenerateJoinRequest() ([]uint8, error) {
+	// TODO: Add checks
 	var buf []uint8
 	buf = append(buf, 0x00)
-	buf = append(buf, revert(r.Otaa.AppEUI[:])...)
-	buf = append(buf, revert(r.Otaa.DevEUI[:])...)
-	buf = append(buf, r.Otaa.DevNonce[1])
-	buf = append(buf, r.Otaa.DevNonce[0])
-	mic := r.CalculateUplinkJoinMIC(buf, r.Otaa.AppKey)
+	buf = append(buf, drivers.Revert(r.Otaa.AppEUI[:])...)
+	buf = append(buf, drivers.Revert(r.Otaa.DevEUI[:])...)
+	buf = append(buf, r.Otaa.DevNonce[:]...)
+	mic := r.genPayloadMIC(buf, r.Otaa.AppKey)
 	buf = append(buf, mic[:]...)
-	return buf
+	return buf, nil
 }
 
 // DecodeJoinAccept Decodes a Lora Join Accept packet
 func (r *LightLW) DecodeJoinAccept(phyPload []uint8) error {
-
-	appK := []byte(r.Otaa.AppKey[:])
-
 	data := phyPload[1:] // Remove trailing 0x20
-
 	// Prepare AES Cipher
-	block, err := aes.NewCipher(appK)
+	block, err := aes.NewCipher(r.Otaa.AppKey[:])
 	if err != nil {
 		return errors.New("Lora Cipher error 1")
 	}
-
 	buf := make([]byte, len(data))
 	for k := 0; k < len(data)/aes.BlockSize; k++ {
 		block.Encrypt(buf[k*aes.BlockSize:], data[k*aes.BlockSize:])
 	}
-
 	copy(r.Otaa.AppNonce[:], buf[0:3])
 	copy(r.Otaa.NetID[:], buf[3:6])
 	copy(r.Session.DevAddr[:], buf[6:10])
@@ -151,7 +139,7 @@ func (r *LightLW) DecodeJoinAccept(phyPload []uint8) error {
 	dataMic = append(dataMic, r.Session.DLSettings)
 	dataMic = append(dataMic, r.Session.RXDelay)
 	dataMic = append(dataMic, r.Session.CFList[:]...)
-	computedMic := r.CalculateUplinkJoinMIC(dataMic[:], r.Otaa.AppKey)
+	computedMic := r.genPayloadMIC(dataMic[:], r.Otaa.AppKey)
 	if !bytes.Equal(computedMic[:], rxMic[:]) {
 		return errors.New("Wrong Mic")
 	}
@@ -162,7 +150,7 @@ func (r *LightLW) DecodeJoinAccept(phyPload []uint8) error {
 	sKey = append(sKey, 0x01)
 	sKey = append(sKey, r.Otaa.AppNonce[:]...)
 	sKey = append(sKey, r.Otaa.NetID[:]...)
-	sKey = append(sKey, revert(r.Otaa.DevNonce[:])...)
+	sKey = append(sKey, drivers.Revert(r.Otaa.DevNonce[:])...)
 	for i := 0; i < 7; i++ {
 		sKey = append(sKey, 0x00) // PAD to 16
 	}
@@ -175,60 +163,51 @@ func (r *LightLW) DecodeJoinAccept(phyPload []uint8) error {
 	block.Encrypt(buf, sKey)
 	copy(r.Session.AppSKey[:], buf[0:16])
 
+	// Reset counters
+	r.Session.FCntDown = 0
+	r.Session.FCntUp = 0
+
 	return nil
 }
 
-//----------------------STOP HERE ---------------
+// GenMessage Forge an uplink message
+func (r *LightLW) GenMessage(dir uint8, payload []uint8) ([]uint8, error) {
+	var buf []uint8
+	buf = append(buf, 0b01000000) // FHDR Unconfirmed up
 
-func (r *LightLW) SendData(payload []uint8) {
+	buf = append(buf, drivers.Revert(r.Session.DevAddr[:])...)
+	buf = append(buf, 0x00)                                                            // FCtl : No ADR, No RFU, No ACK, No FPending, No FOpt
+	buf = append(buf, uint8((r.Session.FCntUp>>8)&0xFF), uint8(r.Session.FCntUp&0xFF)) // FCnt Up
 
-	var rfmBuffer []uint8
-	// Initialise message
-	lmsg := &LoraMsg{}
+	buf = append(buf, 0x01) // FPort=1
 
-	lmsg.MacHeader = 0x00
-	lmsg.FramePort = 0x01
-	lmsg.FrameControl = 0x00
-
-	lmsg.DevAddr[0] = r.Session.DevAddr[0]
-	lmsg.DevAddr[1] = r.Session.DevAddr[1]
-	lmsg.DevAddr[2] = r.Session.DevAddr[2]
-	lmsg.DevAddr[3] = r.Session.DevAddr[3]
-
-	lmsg.Direction = 0x00
-	lmsg.FrameCounter = r.Session.FrameCounter
-	if r.Settings.Confirm == 0x00 {
-		lmsg.MacHeader = lmsg.MacHeader | 0x40 // Unconfirmed
+	fCnt := uint32(0)
+	if dir == 0 {
+		fCnt = r.Session.FCntUp
 	} else {
-		lmsg.MacHeader = lmsg.MacHeader | 0x80 // Confirmed
+		fCnt = r.Session.FCntDown
 	}
-
-	// Fill RFM Buffer
-	rfmBuffer = append(rfmBuffer, lmsg.MacHeader)
-	rfmBuffer = append(rfmBuffer, lmsg.DevAddr[3], lmsg.DevAddr[2], lmsg.DevAddr[1], lmsg.DevAddr[0])
-	rfmBuffer = append(rfmBuffer, uint8(r.Session.FrameCounter&0x00FF))
-	rfmBuffer = append(rfmBuffer, uint8(r.Session.FrameCounter>>8&0x00FF))
-
-	if len(payload) > 0 {
-		rfmBuffer = append(rfmBuffer, r.Settings.Mport)
+	data, err := r.genFRMPayload(dir, drivers.Revert(r.Session.DevAddr[:]), fCnt, payload, false)
+	if err != nil {
+		return nil, err
 	}
-	/*
+	buf = append(buf, data[:]...)
 
-		EncryptPayload(payload, r.Session.AppSKey, lmsg)
-			rfmBuffer[1] = lmsg.DevAddr[3]
-			rfmBuffer[2] = lmsg.DevAddr[2]
-			rfmBuffer[3] = lmsg.DevAddr[1]
-			rfmBuffer[4] = lmsg.DevAddr[0]
+	// Mic
+	//func (r *LightLW) calcMessageMIC(payload []uint8, key [16]uint8, dir uint8, addr []byte, fCnt uint32, lenMessage uint8) [4]uint8 {
 
-			rfmBuffer[5] = lmsg.FrameControl
+	//println("[]byte used for mic: ", drivers.BytesToHexString(buf))
+	mic := r.calcMessageMIC(buf, r.Session.NwkSKey, dir, drivers.Revert(r.Session.DevAddr[:]), fCnt, uint8(len(buf)))
+	buf = append(buf, mic[:]...)
 
-			rfmBuffer[6] = uint8(r.Session.FrameCounter & 0x00FF)
-			rfmBuffer[7] = uint8((r.Session.FrameCounter >> 8) & 0xFF)
-			rfmBuffer[]
-	*/
+	return buf, nil
 }
 
-func (r *LightLW) encryptMessage(dir uint8, fCnt uint32, payload []byte, isFOpts bool) ([]byte, error) {
+// encryptMessage encrypts Frame Header (Sec 4.3.3 lorawan 1.0.3 specification)
+// dir : 0(uplink) 1(downlink)
+// addr : devAddr
+// fCnt : Frame counter (up or down)
+func (r *LightLW) genFRMPayload(dir uint8, addr []uint8, fCnt uint32, payload []byte, isFOpts bool) ([]byte, error) {
 	k := len(payload) / aes.BlockSize
 	if len(payload)%aes.BlockSize != 0 {
 		k++
@@ -241,10 +220,11 @@ func (r *LightLW) encryptMessage(dir uint8, fCnt uint32, payload []byte, isFOpts
 	if err != nil {
 		panic(err) // types.AES128Key
 	}
+
 	var a [aes.BlockSize]byte
 	a[0] = 0x01
 	a[5] = dir
-	copy(a[6:10], revert(r.Session.DevAddr[:]))
+	copy(a[6:10], drivers.Revert(addr))
 	binary.LittleEndian.PutUint32(a[10:14], fCnt)
 	var s [aes.BlockSize]byte
 	var b [aes.BlockSize]byte
@@ -262,18 +242,39 @@ func (r *LightLW) encryptMessage(dir uint8, fCnt uint32, payload []byte, isFOpts
 	return encrypted[:len(payload)], nil
 }
 
-/* Compute MIC for Join Request
- * cmac = aes128_cmac(AppKey, MHDR | AppEUI | DevEUI | DevNonce)
- * MIC = cmac[0..3]
- */
-func (r *LightLW) CalculateUplinkJoinMIC(micBytes []uint8, key [16]uint8) [4]uint8 {
+// getPayloadMIC computes MIC given the payload and the key
+func (r *LightLW) genPayloadMIC(payload []uint8, key [16]uint8) [4]uint8 {
+	var mic [4]uint8
+	hash, _ := cmac.New(key[:])
+	hash.Write(payload)
+	hb := hash.Sum([]byte{})
+	copy(mic[:], hb[0:4])
+	return mic
+}
+
+// getPayloadMIC computes MIC given the payload and the key
+func (r *LightLW) calcMessageMIC(payload []uint8, key [16]uint8, dir uint8, addr []byte, fCnt uint32, lenMessage uint8) [4]uint8 {
+
+	var b0 [aes.BlockSize]byte
+
+	copy(b0[0:5], []byte{0x49, 0x00, 0x00, 0x00, 0x00})
+	b0[5] = dir
+	copy(b0[6:10], drivers.Revert(addr)) // Test
+	binary.LittleEndian.PutUint32(b0[10:14], fCnt)
+	b0[14] = 0x00
+	b0[15] = lenMessage
+
+	var full []byte
+
+	full = append(full, b0[:]...)
+	full = append(full, payload...)
+
+	//	println("calcMessageMic : B0+payload ", drivers.BytesToHexString(full))
 
 	var mic [4]uint8
-
 	hash, _ := cmac.New(key[:])
-	hash.Write(micBytes)
+	hash.Write(full)
 	hb := hash.Sum([]byte{})
-
 	copy(mic[:], hb[0:4])
 	return mic
 }
