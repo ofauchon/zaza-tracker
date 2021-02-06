@@ -1,4 +1,4 @@
-package drivers
+package libs
 
 // byteToHex return string hex representation of byte
 func ByteToHex(b byte) string {

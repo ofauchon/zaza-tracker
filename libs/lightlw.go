@@ -8,7 +8,6 @@ import (
 	"math"
 
 	"github.com/jacobsa/crypto/cmac"
-	"github.com/ofauchon/zaza-tracker/drivers"
 )
 
 /*
@@ -100,9 +99,9 @@ func (r *LightLW) GenerateJoinRequest() ([]uint8, error) {
 	// TODO: Add checks
 	var buf []uint8
 	buf = append(buf, 0x00)
-	buf = append(buf, drivers.Revert(r.Otaa.AppEUI[:])...)
-	buf = append(buf, drivers.Revert(r.Otaa.DevEUI[:])...)
-	buf = append(buf, r.Otaa.DevNonce[:]...)
+	buf = append(buf, Revert(r.Otaa.AppEUI[:])...)
+	buf = append(buf, Revert(r.Otaa.DevEUI[:])...)
+	buf = append(buf, Revert(r.Otaa.DevNonce[:])...)
 	mic := r.genPayloadMIC(buf, r.Otaa.AppKey)
 	buf = append(buf, mic[:]...)
 	return buf, nil
@@ -150,7 +149,7 @@ func (r *LightLW) DecodeJoinAccept(phyPload []uint8) error {
 	sKey = append(sKey, 0x01)
 	sKey = append(sKey, r.Otaa.AppNonce[:]...)
 	sKey = append(sKey, r.Otaa.NetID[:]...)
-	sKey = append(sKey, drivers.Revert(r.Otaa.DevNonce[:])...)
+	sKey = append(sKey, r.Otaa.DevNonce[:]...)
 	for i := 0; i < 7; i++ {
 		sKey = append(sKey, 0x00) // PAD to 16
 	}
@@ -175,7 +174,7 @@ func (r *LightLW) GenMessage(dir uint8, payload []uint8) ([]uint8, error) {
 	var buf []uint8
 	buf = append(buf, 0b01000000) // FHDR Unconfirmed up
 
-	buf = append(buf, drivers.Revert(r.Session.DevAddr[:])...)
+	buf = append(buf, r.Session.DevAddr[:]...)
 	buf = append(buf, 0x00)                                                            // FCtl : No ADR, No RFU, No ACK, No FPending, No FOpt
 	buf = append(buf, uint8((r.Session.FCntUp>>8)&0xFF), uint8(r.Session.FCntUp&0xFF)) // FCnt Up
 
@@ -187,7 +186,7 @@ func (r *LightLW) GenMessage(dir uint8, payload []uint8) ([]uint8, error) {
 	} else {
 		fCnt = r.Session.FCntDown
 	}
-	data, err := r.genFRMPayload(dir, drivers.Revert(r.Session.DevAddr[:]), fCnt, payload, false)
+	data, err := r.genFRMPayload(dir, r.Session.DevAddr[:], fCnt, payload, false)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +196,7 @@ func (r *LightLW) GenMessage(dir uint8, payload []uint8) ([]uint8, error) {
 	//func (r *LightLW) calcMessageMIC(payload []uint8, key [16]uint8, dir uint8, addr []byte, fCnt uint32, lenMessage uint8) [4]uint8 {
 
 	//println("[]byte used for mic: ", drivers.BytesToHexString(buf))
-	mic := r.calcMessageMIC(buf, r.Session.NwkSKey, dir, drivers.Revert(r.Session.DevAddr[:]), fCnt, uint8(len(buf)))
+	mic := r.calcMessageMIC(buf, r.Session.NwkSKey, dir, r.Session.DevAddr[:], fCnt, uint8(len(buf)))
 	buf = append(buf, mic[:]...)
 
 	return buf, nil
@@ -224,7 +223,7 @@ func (r *LightLW) genFRMPayload(dir uint8, addr []uint8, fCnt uint32, payload []
 	var a [aes.BlockSize]byte
 	a[0] = 0x01
 	a[5] = dir
-	copy(a[6:10], drivers.Revert(addr))
+	copy(a[6:10], addr)
 	binary.LittleEndian.PutUint32(a[10:14], fCnt)
 	var s [aes.BlockSize]byte
 	var b [aes.BlockSize]byte
@@ -255,21 +254,24 @@ func (r *LightLW) genPayloadMIC(payload []uint8, key [16]uint8) [4]uint8 {
 // getPayloadMIC computes MIC given the payload and the key
 func (r *LightLW) calcMessageMIC(payload []uint8, key [16]uint8, dir uint8, addr []byte, fCnt uint32, lenMessage uint8) [4]uint8 {
 
-	var b0 [aes.BlockSize]byte
+	//var b0 [aes.BlockSize]byte
 
-	copy(b0[0:5], []byte{0x49, 0x00, 0x00, 0x00, 0x00})
-	b0[5] = dir
-	copy(b0[6:10], drivers.Revert(addr)) // Test
-	binary.LittleEndian.PutUint32(b0[10:14], fCnt)
-	b0[14] = 0x00
-	b0[15] = lenMessage
+	// B0 =  0x49 | 4x 0x00 | Dir (uplink=0x00/downlink=0x01) | DevAddr | FCnt (4 bytes!) | 0x00 | len(msg)
+	var b0 []byte
+	b0 = append(b0, 0x49, 0x00, 0x00, 0x00, 0x00)
+	b0 = append(b0, dir)
+	b0 = append(b0, addr[:]...)
+	var b [4]byte
+	binary.LittleEndian.PutUint32(b[:], fCnt)
+	b0 = append(b0, b[:]...)
+	b0 = append(b0, 0x00)
+	b0 = append(b0, lenMessage)
 
+	println("MIC B0: ", BytesToHexString(b0))
 	var full []byte
-
-	full = append(full, b0[:]...)
+	full = append(full, b0...)
 	full = append(full, payload...)
-
-	//	println("calcMessageMic : B0+payload ", drivers.BytesToHexString(full))
+	println("MIC B0 Full: ", BytesToHexString(full))
 
 	var mic [4]uint8
 	hash, _ := cmac.New(key[:])

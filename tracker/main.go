@@ -9,7 +9,6 @@ import (
 
 	"errors"
 
-	"github.com/ofauchon/zaza-tracker/drivers"
 	"github.com/ofauchon/zaza-tracker/libs"
 	"tinygo.org/x/drivers/gps"
 	"tinygo.org/x/drivers/lora/sx127x"
@@ -346,9 +345,9 @@ func getRand() uint32 {
 func LoraWanTask() {
 
 	println("Lorawan Configuration ")
-	println("  DevEUI : ", drivers.BytesToHexString(loraStack.Otaa.DevEUI[:]))
-	println("  AppEUI : ", drivers.BytesToHexString(loraStack.Otaa.AppEUI[:]))
-	println("  AppKey : ", drivers.BytesToHexString(loraStack.Otaa.AppKey[:]))
+	println("  DevEUI : ", libs.BytesToHexString(loraStack.Otaa.DevEUI[:]))
+	println("  AppEUI : ", libs.BytesToHexString(loraStack.Otaa.AppEUI[:]))
+	println("  AppKey : ", libs.BytesToHexString(loraStack.Otaa.AppKey[:]))
 
 	// We want to be connected all the time
 	for {
@@ -358,7 +357,7 @@ func LoraWanTask() {
 		if err != nil {
 			println("Lorawan join error: ", err)
 		}
-		println("UP_JOINREQUEST: ", drivers.BytesToHexString(payload))
+		println("UP_JOINREQUEST: ", libs.BytesToHexString(payload))
 		loraRadio.TxLora(payload)
 
 		// Switch to RX
@@ -369,19 +368,19 @@ func LoraWanTask() {
 			println("Wait for Lora pkt")
 			event := <-radioChan
 			println("Packet received")
-			println("RX_JOINACCEPT: ", drivers.BytesToHexString(event.EventData))
+			println("RX_JOINACCEPT: ", libs.BytesToHexString(event.EventData))
 			if event.EventType == sx127x.EventRxDone {
 				err := loraStack.DecodeJoinAccept(event.EventData)
 				if (err) == nil {
 					println("Lorawan Network Joined !")
-					println("  DevAddr: ", drivers.BytesToHexString(loraStack.Session.DevAddr[:]))
-					println("  NetID  : ", drivers.BytesToHexString(loraStack.Otaa.NetID[:]))
-					println("  NwkSKey: ", drivers.BytesToHexString(loraStack.Session.NwkSKey[:]))
-					println("  AppSKey: ", drivers.BytesToHexString(loraStack.Session.AppSKey[:]))
+					println("  DevAddr: ", libs.BytesToHexString(loraStack.Session.DevAddr[:]), " (LSB)")
+					println("  NetID  : ", libs.BytesToHexString(loraStack.Otaa.NetID[:]))
+					println("  NwkSKey: ", libs.BytesToHexString(loraStack.Session.NwkSKey[:]))
+					println("  AppSKey: ", libs.BytesToHexString(loraStack.Session.AppSKey[:]))
 					// Sent sample message
 					payload, err := loraStack.GenMessage(0, []byte("TinyGoLora"))
 					if err == nil {
-						println("TX_UPMSG: --appkey ", drivers.BytesToHexString(loraStack.Session.AppSKey[:]), " --nwkkey ", drivers.BytesToHexString(loraStack.Session.NwkSKey[:]), " --hex", drivers.BytesToHexString(payload))
+						println("TX_	UPMSG: --appkey ", libs.BytesToHexString(loraStack.Session.AppSKey[:]), " --nwkkey ", libs.BytesToHexString(loraStack.Session.NwkSKey[:]), " --hex", libs.BytesToHexString(payload))
 						loraRadio.TxLora([]byte(payload))
 					} else {
 						println(err)
@@ -412,7 +411,7 @@ func main() {
 
 	println("Zaza Tracker")
 
-	//config := drivers.NewATConfig()
+	//config := libs.NewATConfig()
 
 	// Start LoraWan
 	// DEVEUI : A84041000181B365
