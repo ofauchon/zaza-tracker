@@ -9,6 +9,7 @@ import (
 
 	"errors"
 
+	"github.com/ofauchon/go-lorawan-stack"
 	"github.com/ofauchon/zaza-tracker/libs"
 	"tinygo.org/x/drivers/gps"
 	"tinygo.org/x/drivers/lora/sx127x"
@@ -32,7 +33,7 @@ type status struct {
 var (
 	uartConsole, uartGps *machine.UART
 	loraRadio            sx127x.Device
-	loraStack            libs.LightLW
+	loraStack            lorawan.LoraWanStack
 	st                   status
 	send_data            = string("")
 	send_delay           = int(0)
@@ -349,8 +350,8 @@ func LoraWanTask() {
 	println("  AppEUI : ", libs.BytesToHexString(loraStack.Otaa.AppEUI[:]))
 	println("  AppKey : ", libs.BytesToHexString(loraStack.Otaa.AppKey[:]))
 
-	// We want to be connected all the time
 	for {
+
 		// Send join packet
 		println("Starting Lorawan Join Request")
 		payload, err := loraStack.GenerateJoinRequest()
