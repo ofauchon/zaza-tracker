@@ -92,7 +92,7 @@ func loraRx(radio sx126x.Device, timeoutSec uint8) ([]uint8, error) {
 
 	// Define packet and modulation configuration (CRC OFF, IQ ON)
 	radio.SetModulationParams(8, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
-	radio.SetPacketParam(8, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_STANDARD)
+	radio.SetPacketParam(8, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_INVERTED)
 
 	for { // We'll leave the loop either with RXDone or with Timeout
 		radio.SetRx(timeout)

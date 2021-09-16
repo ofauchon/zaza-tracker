@@ -13,7 +13,8 @@ const (
 	GPS_POWER_PIN   = machine.PB1
 	GPS_RESET_PIN   = machine.PB2
 	DBG_GPS         = 1
-	FREQ_LORA       = 434100000
+	//FREQ_LORA       = 434100000
+	FREQ_LORA = 868100000
 )
 
 var (
@@ -54,6 +55,9 @@ func HwInit() {
 	loraStack.Otaa.DevEUI = [8]uint8{0xA8, 0x40, 0x41, 0x00, 0x01, 0x81, 0xB3, 0x65}
 	loraStack.Otaa.AppKey = [16]uint8{0x2C, 0x44, 0xFC, 0xF8, 0x6C, 0x7B, 0x76, 0x7B, 0x8F, 0xD3, 0x12, 0x4F, 0xCE, 0x7A, 0x32, 0x16}
 
+	// Prepare HW for Lora
+	loraConfig(radio)
+
 }
 
 func StartTasks() {
@@ -66,4 +70,6 @@ func StartTasks() {
 	//GpsEnable()
 	go GpsTask(gps1, parser1)
 
+	// Start LoraWan
+	go LoraWanTask()
 }
