@@ -14,9 +14,20 @@ const (
 	GPS_RESET_PIN   = machine.PB2
 	DBG_GPS         = 1
 	//FREQ_LORA       = 434100000
-	FREQ_LORA = 868100000
+	//	LORA_FREQ = 868100000
+
+	LORA_FREQ = 868100000
+	//LORA_FREQ = 867700000
+	LORA_SF = 1
+
+	RUNMODE_TRACKER  = 0
+	RUNMODE_RECEIVER = 1
 )
 
+/* TX Test
+868.1
+SF8 / 150 / CR47 OK
+*/
 var (
 	currentState         status
 	uartConsole, uartGps *machine.UART
@@ -24,6 +35,7 @@ var (
 	parser1              gps.Parser
 	radio                sx126x.Device
 	loraStack            lorawan.LoraWanStack
+	RunMode              int
 )
 
 type status struct {
@@ -36,6 +48,16 @@ func HwInit() {
 	// Console
 	uartConsole = machine.Serial
 	machine.Serial.Configure(machine.UARTConfig{TX: machine.UART2_TX_PIN, RX: machine.UART2_RX_PIN, BaudRate: 9600})
+
+	// Buttons
+	machine.BTN1.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	machine.BTN2.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+	machine.BTN3.Configure(machine.PinConfig{Mode: machine.PinInputPullup})
+
+	// LEDS
+	machine.LED1.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	machine.LED2.Configure(machine.PinConfig{Mode: machine.PinOutput})
+	machine.LED3.Configure(machine.PinConfig{Mode: machine.PinOutput})
 
 	// UART1 is GPS
 	uartGps = machine.UART1
@@ -71,5 +93,5 @@ func StartTasks() {
 	go GpsTask(gps1, parser1)
 
 	// Start LoraWan
-	go LoraWanTask()
+	//go LoraWanTask()
 }

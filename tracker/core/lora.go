@@ -14,7 +14,7 @@ func loraConfig(radio sx126x.Device) {
 	radio.SetStandby()
 
 	radio.SetPacketType(sx126x.SX126X_PACKET_TYPE_LORA)
-	radio.SetRfFrequency(FREQ_LORA) // Needs to be done in FS/RX/TX mode ?
+	radio.SetRfFrequency(LORA_FREQ)
 
 	radio.SetBufferBaseAddress(0, 0)
 
@@ -26,7 +26,7 @@ func loraConfig(radio sx126x.Device) {
 
 	radio.SetCurrentLimit(60)
 
-	radio.SetModulationParams(12, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
+	radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
 	radio.SetPaConfig(0x04, 0x07, 0x00, 0x01)
 	radio.SetTxParams(0x16, sx126x.SX126X_PA_RAMP_200U)
 	radio.SetBufferBaseAddress(0, 0)
@@ -54,7 +54,7 @@ func loraTx(radio sx126x.Device, pkt []uint8) error {
 	machine.PB5.Set(true)
 
 	// Define packet and modulation configuration (CRC ON, IQ OFF)
-	radio.SetModulationParams(8, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
+	radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
 	radio.SetPacketParam(8, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_ON, uint8(len(pkt)), sx126x.SX126X_LORA_IQ_STANDARD)
 
 	// Copy and send packet
@@ -91,8 +91,8 @@ func loraRx(radio sx126x.Device, timeoutSec uint8) ([]uint8, error) {
 	machine.PB5.Set(false)
 
 	// Define packet and modulation configuration (CRC OFF, IQ ON)
-	radio.SetModulationParams(8, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
-	radio.SetPacketParam(8, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_INVERTED)
+	radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
+	radio.SetPacketParam(LORA_SF, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_STANDARD)
 
 	for { // We'll leave the loop either with RXDone or with Timeout
 		radio.SetRx(timeout)
@@ -101,7 +101,7 @@ func loraRx(radio sx126x.Device, timeoutSec uint8) ([]uint8, error) {
 
 		if irq&sx126x.SX126X_IRQ_RX_DONE == sx126x.SX126X_IRQ_RX_DONE {
 			st := radio.GetRxBufferStatus()
-			println("Rx Buffer Status", st[0], st[1])
+			//println("Rx Buffer Status", st[0], st[1])
 			radio.SetBufferBaseAddress(0, st[1]) // Skip first byte
 			pkt := radio.ReadBuffer(st[0] + 1)
 			pkt = pkt[1:] // Skip first char ??? checkthat
