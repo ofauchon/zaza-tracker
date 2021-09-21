@@ -22,7 +22,7 @@ func loraConfig(radio sx126x.Device) {
 	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
 	radio.SetDioIrqParams(sx126x.SX126X_IRQ_TX_DONE|sx126x.SX126X_IRQ_TIMEOUT|sx126x.SX126X_IRQ_RX_DONE, sx126x.SX126X_IRQ_TX_DONE, 0x00, 0x00)
 
-	radio.CalibrateAll()
+	radio.Calibrate(sx126x.SX126X_CALIBRATE_ALL)
 	time.Sleep(10 * time.Millisecond)
 
 	radio.SetCurrentLimit(60)
@@ -106,9 +106,9 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 		irq := radio.GetIrqStatus()
 		println("Status:", st, "Irq:", irq)
 		if irq&sx126x.SX126X_IRQ_RX_DONE == sx126x.SX126X_IRQ_RX_DONE {
-			st := radio.GetRxBufferStatus()
-			radio.SetBufferBaseAddress(0, st[1]) // Skip first byte
-			pkt := radio.ReadBuffer(st[0] + 1)
+			leng, offs := radio.GetRxBufferStatus()
+			radio.SetBufferBaseAddress(0, offs) // Skip first byte
+			pkt := radio.ReadBuffer(leng + 1)
 			pkt = pkt[1:] // Skip first char ??? checkthat
 			return pkt, nil
 		} else if irq&sx126x.SX126X_IRQ_TIMEOUT == sx126x.SX126X_IRQ_TIMEOUT {
