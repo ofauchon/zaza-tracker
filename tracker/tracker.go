@@ -44,23 +44,38 @@ func main() {
 		machine.LED1.Set(true)
 	}
 
+	if !machine.BTN2.Get() {
+		core.RunMode = core.RUNMODE_CONSOLE
+		println("XXX CONSOLE MODE XXX ")
+		machine.LED2.Set(true)
+	}
+
 	// Initialize all hardware
 	core.HwInit2()
-
-	// Start GPS and Console routines
-	core.StartTasks()
-
-	// RECEIVER MODE
 
 	switch core.RunMode {
 	case core.RUNMODE_RECEIVER:
 		println("Start RECEIVER mode")
+		go core.ConsoleTask()
+		//go core.GpsTask()
 		core.ModeReceive()
+
 	case core.RUNMODE_TRACKER:
 		println("Start TRACKER mode")
+		go core.ConsoleTask()
+		go core.GpsTask()
 		core.ModeTracker()
+
+	case core.RUNMODE_CONSOLE:
+		println("Start CONSOLE mode")
+		go core.ConsoleTask()
+
 	default:
 		println("Nothing to do")
 
+	}
+
+	for {
+		time.Sleep(time.Millisecond * 250)
 	}
 }

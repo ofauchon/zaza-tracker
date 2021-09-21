@@ -2,7 +2,6 @@ package core
 
 import (
 	"errors"
-	"machine"
 	"strconv"
 	"strings"
 	"time"
@@ -57,17 +56,19 @@ func processCmd(cmd string) error {
 			if len(ss) == 3 {
 				timeout, _ := strconv.Atoi(ss[2])
 				println("Lora RX for ", timeout, "ms ")
-				for i := 0; i < timeout; i++ {
-					println("Waiting for RX Packet with timeout", timeout, " ms.")
-					data, err := loraRx(radio, timeout)
-					if err != nil {
-						println("RX: ", libs.BytesToHexString(data))
-						println("OK")
-					} else {
-						println(err)
-					}
-
+				if uartConsole.Buffered() > 0 {
+					println("Stopped by user")
+					break
 				}
+				println("Waiting for RX Packet with timeout", timeout, " ms.")
+				data, err := loraRx(radio, timeout)
+				if err != nil {
+					println("RX: ", libs.BytesToHexString(data))
+					println("OK")
+				} else {
+					println(err)
+				}
+
 			}
 
 		case "setfreq":
@@ -211,7 +212,7 @@ func processCmd(cmd string) error {
 }
 
 // consoleTask receive and processes commands
-func ConsoleTask(serialPort *machine.UART) string {
+func ConsoleTask() string {
 	println("ConsoleTask Start")
 	input := make([]byte, 300) // serial port buffer
 
@@ -224,18 +225,18 @@ func ConsoleTask(serialPort *machine.UART) string {
 			i = 0
 		}
 
-		if serialPort.Buffered() > 0 {
+		if uartConsole.Buffered() > 0 {
 
-			data, _ := serialPort.ReadByte() // read a character
+			data, _ := uartConsole.ReadByte() // read a character
 
 			switch data {
 			case 13: // pressed return key
-				serialPort.Write([]byte("\r\n"))
+				uartConsole.Write([]byte("\r\n"))
 				cmd := string(input[:i])
 				processCmd(cmd)
 				i = 0
 			default: // pressed any other key
-				serialPort.WriteByte(data)
+				uartConsole.WriteByte(data)
 				input[i] = data
 				i++
 			}

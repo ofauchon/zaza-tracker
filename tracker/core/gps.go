@@ -32,11 +32,16 @@ func GpsDisable() {
 }
 */
 // gpsTask() processes incoming GPS sentences from the driver
-func GpsTask(pGps gps.Device, pParser gps.Parser) {
-	var fix gps.Fix
+func GpsTask() {
 	println("GpsTask start")
+	currentState.lastValidFix.Valid = false
+	var fix gps.Fix
+
+	// GPS driver
+	gps1 = gps.NewUART(uartGps)
+	parser1 = gps.NewParser()
 	for {
-		s, err := pGps.NextSentence()
+		s, err := gps1.NextSentence()
 		if err != nil {
 			//println(err)
 			continue
@@ -46,7 +51,7 @@ func GpsTask(pGps gps.Device, pParser gps.Parser) {
 			println("DGB:", s)
 		}
 
-		fix, err = pParser.Parse(s)
+		fix, err = parser1.Parse(s)
 		if err != nil {
 			//println(err)
 			continue

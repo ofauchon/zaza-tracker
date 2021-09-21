@@ -24,6 +24,7 @@ const (
 
 	RUNMODE_TRACKER  = 0
 	RUNMODE_RECEIVER = 1
+	RUNMODE_CONSOLE  = 2
 )
 
 /* TX Test
@@ -68,10 +69,6 @@ func HwInit2() {
 	uartGps = machine.UART1
 	uartGps.Configure(machine.UARTConfig{TX: machine.UART1_TX_PIN, RX: machine.UART1_RX_PIN, BaudRate: 9600})
 
-	// GPS driver
-	gps1 = gps.NewUART(uartGps)
-	parser1 = gps.NewParser()
-
 	// Radio
 	radio = sx126x.New(machine.SPI0)
 
@@ -85,18 +82,4 @@ func HwInit2() {
 	// Prepare HW for Lora
 	loraConfig(radio)
 
-}
-
-func StartTasks() {
-
-	currentState.lastValidFix.Valid = false
-	// Start Serial console
-	go ConsoleTask(uartConsole)
-
-	// Start GPS Device
-	//GpsEnable()
-	go GpsTask(gps1, parser1)
-
-	// Start LoraWan
-	//go LoraWanTask()
 }

@@ -5,6 +5,7 @@ import (
 	"machine"
 	"time"
 
+	"github.com/ofauchon/zaza-tracker/libs"
 	"tinygo.org/x/drivers/lora/sx126x"
 )
 
@@ -20,7 +21,7 @@ func loraConfig(radio sx126x.Device) {
 	radio.SetBufferBaseAddress(0, 0)
 
 	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
-	radio.SetDioIrqParams(sx126x.SX126X_IRQ_TX_DONE|sx126x.SX126X_IRQ_TIMEOUT|sx126x.SX126X_IRQ_RX_DONE, sx126x.SX126X_IRQ_TX_DONE, 0x00, 0x00)
+	radio.SetDioIrqParams(sx126x.SX126X_IRQ_TX_DONE|sx126x.SX126X_IRQ_TIMEOUT|sx126x.SX126X_IRQ_RX_DONE, 0x00, 0x00, 0x00)
 
 	radio.Calibrate(sx126x.SX126X_CALIBRATE_ALL)
 	time.Sleep(10 * time.Millisecond)
@@ -64,8 +65,9 @@ func loraTx(radio sx126x.Device, pkt []uint8) error {
 	radio.SetTx(timeout)
 
 	for {
+		st := radio.GetStatus()
 		irq := radio.GetIrqStatus()
-		radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
+		println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", libs.IntToBinString(int(irq), 8))
 
 		if irq&sx126x.SX126X_IRQ_TX_DONE == sx126x.SX126X_IRQ_TX_DONE {
 			return nil
@@ -86,7 +88,9 @@ func loraTx(radio sx126x.Device, pkt []uint8) error {
 // error returns error if any
 func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 
-	timeout := uint32(timeoutMs * 1000000 / 15625)
+	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
+
+	//timeout := uint32(float32(timeoutMs) * 1000 / 15.625)
 
 	// Wait RX
 	machine.PA4.Set(true)
@@ -96,16 +100,17 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 	radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
 	radio.SetPacketParam(LORA_PREAMBLE_RX, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_STANDARD)
 
-	radio.SetDioIrqParams(0xFF, 0xFF, 0x00, 0x00) // Enable RXDONE and TIMEOUT
-	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
+	radio.SetRx(0) // RX Forever : FIXME, use RX timeouts
 
-	radio.SetRx(timeout)
+	elapsedMs := 0
+	for elapsedMs < timeoutMs {
+		//st := radio.GetStatus()
+		//irq := radio.GetIrqStatus()
 
-	for {
-		st := radio.GetStatus()
-		irq := radio.GetIrqStatus()
-		println("Status:", st, "Irq:", irq)
+		//println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", irq, libs.IntToBinString(int(irq), 8))
 		if irq&sx126x.SX126X_IRQ_RX_DONE == sx126x.SX126X_IRQ_RX_DONE {
+			radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
+
 			leng, offs := radio.GetRxBufferStatus()
 			radio.SetBufferBaseAddress(0, offs) // Skip first byte
 			pkt := radio.ReadBuffer(leng + 1)
@@ -117,7 +122,8 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 			println("IRQ value", irq)
 			return nil, errors.New("RX:Unexpected IRQ value")
 		}
-		time.Sleep(time.Millisecond * 500) // Fixme, use interrupts
+		time.Sleep(time.Millisecond * 100) // Fixme, use interrupts
+		elapsedMs += 100
 	}
 	return nil, nil
 
