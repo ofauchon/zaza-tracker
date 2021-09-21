@@ -37,7 +37,7 @@ func LoraWanTask() {
 
 		println("lorawan: Wait for JOINACCEPT for 10s")
 		// Receive join Accept (Timeout 10s)
-		resp, err := loraRx(radio, 10)
+		resp, err := loraRx(radio, 10000)
 		if err != nil {
 			println("lorawan: Error loraRx: ", err)
 		}

@@ -13,7 +13,6 @@ import (
 func ModeTracker() {
 
 	for {
-		println("tracker:start : ", currentState.lastValidFix.Valid)
 		// Do we have a fix ?
 		if currentState.lastValidFix.Valid {
 
@@ -48,7 +47,7 @@ func ModeReceive() {
 	for {
 		// Try to get a packet
 		println("wait for RX Packet")
-		resp, err := loraRx(radio, 10)
+		resp, err := loraRx(radio, 10000)
 		println("Rx done")
 		if err != nil {
 			println("RX Error:", err)

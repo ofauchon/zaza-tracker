@@ -30,7 +30,7 @@ func main() {
 	}
 
 	// Initialize all hardware
-	core.HwInit()
+	core.HwInit1()
 
 	println("\n\n")
 	println("################")
@@ -43,6 +43,9 @@ func main() {
 		println("XXX RECEIVER MODE XXX ")
 		machine.LED1.Set(true)
 	}
+
+	// Initialize all hardware
+	core.HwInit2()
 
 	// Start GPS and Console routines
 	core.StartTasks()

@@ -11,6 +11,7 @@ import (
 // configureLora initialize
 func loraConfig(radio sx126x.Device) {
 
+	println("Lora radio init")
 	radio.SetStandby()
 
 	radio.SetPacketType(sx126x.SX126X_PACKET_TYPE_LORA)
@@ -55,7 +56,7 @@ func loraTx(radio sx126x.Device, pkt []uint8) error {
 
 	// Define packet and modulation configuration (CRC ON, IQ OFF)
 	radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
-	radio.SetPacketParam(8, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_ON, uint8(len(pkt)), sx126x.SX126X_LORA_IQ_STANDARD)
+	radio.SetPacketParam(LORA_PREAMBLE_TX, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_ON, uint8(len(pkt)), sx126x.SX126X_LORA_IQ_STANDARD)
 
 	// Copy and send packet
 	radio.SetBufferBaseAddress(0, 0)
@@ -80,11 +81,12 @@ func loraTx(radio sx126x.Device, pkt []uint8) error {
 	return nil
 }
 
-// LoraRx
-func loraRx(radio sx126x.Device, timeoutSec uint8) ([]uint8, error) {
+// LoraRx() waits for incoming lora packet
+// timeoutMs is the RX Timeout in milliseconds
+// error returns error if any
+func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 
-	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
-	timeout := uint32(float32(timeoutSec) * 1000000 / 15.625)
+	timeout := uint32(timeoutMs * 1000000 / 15625)
 
 	// Wait RX
 	machine.PA4.Set(true)
@@ -92,27 +94,31 @@ func loraRx(radio sx126x.Device, timeoutSec uint8) ([]uint8, error) {
 
 	// Define packet and modulation configuration (CRC OFF, IQ ON)
 	radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
-	radio.SetPacketParam(LORA_SF, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_STANDARD)
+	radio.SetPacketParam(LORA_PREAMBLE_RX, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_STANDARD)
 
-	for { // We'll leave the loop either with RXDone or with Timeout
-		radio.SetRx(timeout)
+	radio.SetDioIrqParams(0xFF, 0xFF, 0x00, 0x00) // Enable RXDONE and TIMEOUT
+	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
+
+	radio.SetRx(timeout)
+
+	for {
+		st := radio.GetStatus()
 		irq := radio.GetIrqStatus()
-		radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
-
+		println("Status:", st, "Irq:", irq)
 		if irq&sx126x.SX126X_IRQ_RX_DONE == sx126x.SX126X_IRQ_RX_DONE {
 			st := radio.GetRxBufferStatus()
-			//println("Rx Buffer Status", st[0], st[1])
 			radio.SetBufferBaseAddress(0, st[1]) // Skip first byte
 			pkt := radio.ReadBuffer(st[0] + 1)
 			pkt = pkt[1:] // Skip first char ??? checkthat
 			return pkt, nil
 		} else if irq&sx126x.SX126X_IRQ_TIMEOUT == sx126x.SX126X_IRQ_TIMEOUT {
-			return nil, errors.New("Rx timeout")
+			return nil, nil
 		} else if irq > 0 {
 			println("IRQ value", irq)
 			return nil, errors.New("RX:Unexpected IRQ value")
 		}
-		time.Sleep(time.Millisecond * 100) // Check status every 100ms
+		time.Sleep(time.Millisecond * 500) // Fixme, use interrupts
 	}
+	return nil, nil
 
 }

@@ -6,8 +6,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/ofauchon/zaza-tracker/libs"
 )
 
+/*
+lora setfreq 848300000
+lora tx coucousssssssssssssssssss
+*/
 var (
 	send_data  = string("")
 	send_delay = int(0)
@@ -18,31 +24,102 @@ func processCmd(cmd string) error {
 	ss := strings.Split(cmd, " ")
 	switch ss[0] {
 	case "help":
-		println("reset: reset lora device")
+		println("lora rx <duration millisec>: wait for rx packets for x millisec ")
+		println("lora tx <message>: send lora packet ")
+		println("lora setfreq <freq>: change frequency (in Hz) ")
+		println("lorawan join")
 		println("get: temp|mode|freq|regs")
-		println("set: freq <8680000000> set transceiver frequency (in Hz)")
+		println("set: freq <868000000> set transceiver frequency (in Hz)")
 		println("mode: <rx,tx,standby,sleep>")
 		println("debug: <gps,none> enable debug or none")
-	case "reset":
-		//		loraRadio.Reset()
-		//		println("Reset done !")
 
-	case "send":
-		if len(ss) == 2 {
-			println("Scheduled data to send :", ss[1])
-			send_data = ss[1]
-			/*
-				err := d.Send([]byte(send_data))
-				if err != nil {
-					println("Send error", err)
-				}
-			*/
+	// LORA COMMANDS
+	case "lora":
+
+		if len(ss) < 2 {
+			break
 		}
+
+		switch ss[1] {
+		case "tx":
+			if len(ss) == 3 {
+				txdata := []byte(ss[2])
+				println("TX Data :", libs.BytesToHexString(txdata))
+				err := loraTx(radio, txdata)
+				if err != nil {
+					println("tx error", err)
+				} else {
+					println("OK")
+				}
+			}
+
+		case "rx":
+			if len(ss) == 3 {
+				timeout, _ := strconv.Atoi(ss[2])
+				println("Lora RX for ", timeout, "ms ")
+				for i := 0; i < timeout; i++ {
+					println("Waiting for RX Packet with timeout", timeout, " ms.")
+					data, err := loraRx(radio, timeout)
+					if err != nil {
+						println("RX: ", libs.BytesToHexString(data))
+						println("OK")
+					} else {
+						println(err)
+					}
+
+				}
+			}
+
+		case "setfreq":
+			if len(ss) == 3 {
+				freq, err := strconv.Atoi(ss[2])
+				if err != nil {
+					println("Bad frequence", err)
+				} else {
+					println("> Switch to standby and change freq")
+					radio.SetStandby()
+					radio.SetRfFrequency(uint32(freq))
+					println("OK")
+				}
+			}
+
+		//radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
+		case "setmod":
+			if len(ss) == 6 {
+				sf, _ := strconv.Atoi(ss[2])
+				bw, _ := strconv.Atoi(ss[3])
+				cr, _ := strconv.Atoi(ss[4])
+				ldr, _ := strconv.Atoi(ss[5])
+				println("> Switch to standby")
+				radio.SetStandby()
+				println("> SetModulationParam:", uint8(sf), uint8(bw), uint8(cr), uint8(ldr))
+				radio.SetModulationParams(uint8(sf), uint8(bw), uint8(cr), uint8(ldr))
+				println("OK")
+			}
+		}
+
+	case "lorawan":
+		if len(ss) == 2 {
+			switch ss[1] {
+			case "join":
+				println("Start Join")
+				// Send join packet
+				payload, _ := loraStack.GenerateJoinRequest()
+				loraTx(radio, payload)
+				println("Wait Join Response")
+				resp, err := loraRx(radio, 10000)
+				err = loraStack.DecodeJoinAccept(resp)
+				if err == nil {
+					println("Join Accept Response OK")
+				}
+			}
+		}
+
 	case "get":
 		if len(ss) == 2 {
 			switch ss[1] {
 			case "freq":
-				//println("Freq:")
+				println("Freq:")
 			case "temp":
 				//temp, _ := d.ReadTemperature(0)
 				println("Temperature:")

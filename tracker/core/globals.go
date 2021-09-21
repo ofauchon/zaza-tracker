@@ -18,7 +18,9 @@ const (
 
 	LORA_FREQ = 868100000
 	//LORA_FREQ = 867700000
-	LORA_SF = 1
+	LORA_SF          = 7
+	LORA_PREAMBLE_TX = 12 // 12 symbols is default, 8 will be actually used
+	LORA_PREAMBLE_RX = 12 // It should be the same for receiver and transmitter
 
 	RUNMODE_TRACKER  = 0
 	RUNMODE_RECEIVER = 1
@@ -43,7 +45,7 @@ type status struct {
 	debug        uint8
 }
 
-func HwInit() {
+func HwInit1() {
 
 	// Console
 	uartConsole = machine.Serial
@@ -58,6 +60,9 @@ func HwInit() {
 	machine.LED1.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	machine.LED2.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	machine.LED3.Configure(machine.PinConfig{Mode: machine.PinOutput})
+}
+
+func HwInit2() {
 
 	// UART1 is GPS
 	uartGps = machine.UART1
