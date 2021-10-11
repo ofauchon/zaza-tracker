@@ -5,7 +5,6 @@ import (
 	"machine"
 	"time"
 
-	"github.com/ofauchon/zaza-tracker/libs"
 	"tinygo.org/x/drivers/lora/sx126x"
 )
 
@@ -49,7 +48,9 @@ func loraConfig(radio sx126x.Device) {
 // LoraTx
 func loraTx(radio sx126x.Device, pkt []uint8) error {
 	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
-	timeout := (uint32)(1000000 / 15.625) // 1sec
+
+	// Set timeout to 10s
+	timeout := (uint32)(10 * 1000000 / 15.625) // 10sec
 
 	// Set correct output (LoraE5 specific)
 	machine.PA4.Set(false)
@@ -65,16 +66,18 @@ func loraTx(radio sx126x.Device, pkt []uint8) error {
 	radio.SetTx(timeout)
 
 	for {
-		st := radio.GetStatus()
+		//st := radio.GetStatus()
 		irq := radio.GetIrqStatus()
-		println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", libs.IntToBinString(int(irq), 8))
+		//println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", libs.IntToBinString(int(irq), 16))
 
 		if irq&sx126x.SX126X_IRQ_TX_DONE == sx126x.SX126X_IRQ_TX_DONE {
+			println("TX: Done")
 			return nil
 		} else if irq&sx126x.SX126X_IRQ_TIMEOUT == sx126x.SX126X_IRQ_TIMEOUT {
+			println("TX:Timeout")
 			return errors.New("Tx timeout")
 		} else if irq > 0 {
-			println("IRQ value", irq)
+			println("TX: Unhandled IRQ value", irq)
 			return errors.New("Unexpected IRQ value")
 		}
 
@@ -90,7 +93,7 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 
 	radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
 
-	//timeout := uint32(float32(timeoutMs) * 1000 / 15.625)
+	timeout := uint32(float32(timeoutMs) * 1000 / 15.625)
 
 	// Wait RX
 	machine.PA4.Set(true)
@@ -100,15 +103,17 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 	radio.SetModulationParams(LORA_SF, sx126x.SX126X_LORA_BW_125_0, sx126x.SX126X_LORA_CR_4_7, sx126x.SX126X_LORA_LOW_DATA_RATE_OPTIMIZE_OFF)
 	radio.SetPacketParam(LORA_PREAMBLE_RX, sx126x.SX126X_LORA_HEADER_EXPLICIT, sx126x.SX126X_LORA_CRC_OFF, 1, sx126x.SX126X_LORA_IQ_STANDARD)
 
-	radio.SetRx(0) // RX Forever : FIXME, use RX timeouts
+	radio.SetRx(timeout) // RX Forever : FIXME, use RX timeouts
 
-	elapsedMs := 0
-	for elapsedMs < timeoutMs {
+	//elapsedMs := 0
+	//for elapsedMs < timeoutMs {
+	for {
 		//st := radio.GetStatus()
-		//irq := radio.GetIrqStatus()
+		irq := radio.GetIrqStatus()
 
-		//println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", irq, libs.IntToBinString(int(irq), 8))
+		//println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", irq, libs.IntToBinString(int(irq), 16))
 		if irq&sx126x.SX126X_IRQ_RX_DONE == sx126x.SX126X_IRQ_RX_DONE {
+			println("RX: got packet")
 			radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
 
 			leng, offs := radio.GetRxBufferStatus()
@@ -117,13 +122,14 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 			pkt = pkt[1:] // Skip first char ??? checkthat
 			return pkt, nil
 		} else if irq&sx126x.SX126X_IRQ_TIMEOUT == sx126x.SX126X_IRQ_TIMEOUT {
+			println("RX: Timeout")
 			return nil, nil
 		} else if irq > 0 {
-			println("IRQ value", irq)
+			println("RX unhandled IRQ value", irq)
 			return nil, errors.New("RX:Unexpected IRQ value")
 		}
 		time.Sleep(time.Millisecond * 100) // Fixme, use interrupts
-		elapsedMs += 100
+		//		elapsedMs += 100
 	}
 	return nil, nil
 

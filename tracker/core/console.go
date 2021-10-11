@@ -23,13 +23,14 @@ func processCmd(cmd string) error {
 	ss := strings.Split(cmd, " ")
 	switch ss[0] {
 	case "help":
+		println("mode [none|tracker|monitor]: Switch between tracker and monitor mode ")
 		println("lora rx <duration millisec>: wait for rx packets for x millisec ")
 		println("lora tx <message>: send lora packet ")
 		println("lora setfreq <freq>: change frequency (in Hz) ")
 		println("lorawan join")
 		println("get: temp|mode|freq|regs")
 		println("set: freq <868000000> set transceiver frequency (in Hz)")
-		println("mode: <rx,tx,standby,sleep>")
+		println("radiomode: <rx,tx,standby,sleep>")
 		println("debug: <gps,none> enable debug or none")
 
 	// LORA COMMANDS
@@ -116,6 +117,24 @@ func processCmd(cmd string) error {
 			}
 		}
 
+	case "mode":
+		if len(ss) == 2 {
+			switch ss[1] {
+			case "console":
+				println("Start Console mode")
+				TrackerLoopDisable()
+				MonitorLoopDisable()
+			case "monitor":
+				println("Start Monitor mode")
+				TrackerLoopDisable()
+				MonitorLoopEnable()
+			case "tracker":
+				println("Start Monitor mode")
+				MonitorLoopDisable()
+				TrackerLoopEnable()
+			}
+		}
+
 	case "get":
 		if len(ss) == 2 {
 			switch ss[1] {
@@ -157,7 +176,7 @@ func processCmd(cmd string) error {
 					println("invalid use of set command")
 				}
 		*/
-	case "mode":
+	case "radiomode":
 		if len(ss) == 2 {
 			switch ss[1] {
 			case "standby":
@@ -212,7 +231,7 @@ func processCmd(cmd string) error {
 }
 
 // consoleTask receive and processes commands
-func ConsoleTask() string {
+func ConsoleTaskLoop() string {
 	println("ConsoleTask Start")
 	input := make([]byte, 300) // serial port buffer
 

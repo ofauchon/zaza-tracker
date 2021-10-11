@@ -9,19 +9,42 @@ import (
 	"github.com/ofauchon/zaza-tracker/libs"
 )
 
-// ModeTracker is used to GPS Position over Lora
-func ModeTracker() {
+var (
+	TrackerLoopEnabled bool
+	MonitorLoopEnabled bool
+)
+
+func TrackerLoopEnable() {
+	TrackerLoopEnabled = true
+}
+func TrackerLoopDisable() {
+	TrackerLoopEnabled = false
+}
+
+func MonitorLoopEnable() {
+	MonitorLoopEnabled = true
+}
+func MonitorLoopDisable() {
+	MonitorLoopEnabled = false
+}
+
+// ModeTracker waits for a valid position, and send a Lora packet
+func TrackerLoop() {
 
 	for {
+
+		for TrackerLoopEnabled == false {
+			time.Sleep(time.Second)
+		}
+
 		// Do we have a fix ?
 		if currentState.lastValidFix.Valid {
 
-			pCurrent := NewPoint(float64(currentState.lastValidFix.Longitude), float64(currentState.lastValidFix.Latitude))
+			// Marshal to binary data
+			pCurrentLocation := NewPoint(float64(currentState.lastValidFix.Longitude), float64(currentState.lastValidFix.Latitude))
+			data, err := pCurrentLocation.MarshalBinary()
 
-			// Marshal and send
-			data, err := pCurrent.MarshalBinary()
 			if err == nil {
-
 				pkt := append([]byte("zaza:"), data...)
 
 				machine.LED1.High()
@@ -30,23 +53,25 @@ func ModeTracker() {
 				machine.LED1.Low()
 
 				println("TX: ", libs.BytesToHexString(pkt[:]))
-
 			}
-
 		}
-
 		time.Sleep(time.Second * 15)
-
 	}
 
 }
 
 // ModeReveive() Listen for Lora data, and helps locating target
-func ModeReceive() {
+func MonitorLoop() {
 
+	pTarget := &Point{}
 	for {
+
+		for MonitorLoopEnabled == false {
+			time.Sleep(time.Second)
+		}
+
 		// Try to get a packet
-		println("wait for RX Packet")
+		println("wait for RX Packet (10s)")
 		resp, err := loraRx(radio, 10000)
 		println("Rx done")
 		if err != nil {
@@ -54,32 +79,36 @@ func ModeReceive() {
 			time.Sleep(time.Second)
 			continue
 		}
+
+		if resp == nil {
+			//println("No data")
+			continue
+		}
+		// LED Blink
 		machine.LED2.High()
 		time.Sleep(time.Millisecond * 250)
 		machine.LED1.Low()
-
 		println("RX: ", libs.BytesToHexString(resp[:]))
 
-		// Decode it
+		// Try to decode
 		s := string(resp)
 		if strings.HasPrefix(s, "zaza:") {
-			pTarget := &Point{}
 			err := pTarget.UnmarshalBinary(resp[5:])
 			if err != nil {
 				println("Can't unmarshall packet")
 				continue
 			}
-			fmt.Printf("Position: %f %f \r\n", pTarget.Lat(), pTarget.Lng())
+		}
+		fmt.Printf("Position: %f %f \r\n", pTarget.Lat(), pTarget.Lng())
 
-			if currentState.lastValidFix.Valid {
-				pCurrent := NewPoint(float64(currentState.lastValidFix.Longitude), float64(currentState.lastValidFix.Latitude))
+		if currentState.lastValidFix.Valid {
+			pCurrent := NewPoint(float64(currentState.lastValidFix.Longitude), float64(currentState.lastValidFix.Latitude))
 
-				// Display distance & bearing
-				dist := pCurrent.GreatCircleDistance(pTarget)
-				fmt.Printf("great circle distance: %f\r\n", dist)
-				bear := pCurrent.BearingTo(pTarget)
-				fmt.Printf("Bearing: %f\r\n", bear)
-			}
+			// Display distance & bearing
+			dist := pCurrent.GreatCircleDistance(pTarget)
+			fmt.Printf("great circle distance: %f\r\n", dist)
+			bear := pCurrent.BearingTo(pTarget)
+			fmt.Printf("Bearing: %f\r\n", bear)
 		}
 
 	}

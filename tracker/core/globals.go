@@ -16,20 +16,22 @@ const (
 	//FREQ_LORA       = 434100000
 	//	LORA_FREQ = 868100000
 
-	LORA_FREQ = 868100000
-	//LORA_FREQ = 867700000
+	LORA_FREQ        = 868100000
 	LORA_SF          = 7
 	LORA_PREAMBLE_TX = 12 // 12 symbols is default, 8 will be actually used
 	LORA_PREAMBLE_RX = 12 // It should be the same for receiver and transmitter
 
-	RUNMODE_TRACKER  = 0
-	RUNMODE_RECEIVER = 1
-	RUNMODE_CONSOLE  = 2
+	RUNMODE_CONSOLE  = 0
+	RUNMODE_TRACKER  = 1
+	RUNMODE_RECEIVER = 2
 )
 
 /* TX Test
 868.1
 SF8 / 150 / CR47 OK
+SF6 OK
+SF9 OK
+SF12
 */
 var (
 	currentState         status

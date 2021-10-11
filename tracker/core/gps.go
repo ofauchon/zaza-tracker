@@ -32,7 +32,7 @@ func GpsDisable() {
 }
 */
 // gpsTask() processes incoming GPS sentences from the driver
-func GpsTask() {
+func GpsTaskLoop() {
 	println("GpsTask start")
 	currentState.lastValidFix.Valid = false
 	var fix gps.Fix

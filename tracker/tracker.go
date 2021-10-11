@@ -16,6 +16,7 @@ var (
 	cycle          uint32
 	btnCount       uint32
 	enableLoraInts bool
+	currentMode    uint
 )
 
 // main is where the program begins :-)
@@ -29,7 +30,7 @@ func main() {
 
 	}
 
-	// Initialize all hardware
+	// Initialize basic hardware (UART, LED, BUTTONS)
 	core.HwInit1()
 
 	println("\n\n")
@@ -53,27 +54,11 @@ func main() {
 	// Initialize all hardware
 	core.HwInit2()
 
-	switch core.RunMode {
-	case core.RUNMODE_RECEIVER:
-		println("Start RECEIVER mode")
-		go core.ConsoleTask()
-		//go core.GpsTask()
-		core.ModeReceive()
-
-	case core.RUNMODE_TRACKER:
-		println("Start TRACKER mode")
-		go core.ConsoleTask()
-		go core.GpsTask()
-		core.ModeTracker()
-
-	case core.RUNMODE_CONSOLE:
-		println("Start CONSOLE mode")
-		go core.ConsoleTask()
-
-	default:
-		println("Nothing to do")
-
-	}
+	// Start Loops
+	go core.ConsoleTaskLoop()
+	go core.GpsTaskLoop()
+	go core.MonitorLoop()
+	go core.TrackerLoop()
 
 	for {
 		time.Sleep(time.Millisecond * 250)
