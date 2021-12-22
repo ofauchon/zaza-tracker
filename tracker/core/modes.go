@@ -52,7 +52,7 @@ func TrackerLoop() {
 				time.Sleep(time.Second)
 				machine.LED1.Low()
 
-				println("TX: ", libs.BytesToHexString(pkt[:]))
+				println("> TX: ", libs.BytesToHexString(pkt[:]))
 			}
 		}
 		time.Sleep(time.Second * 15)
@@ -73,7 +73,7 @@ func MonitorLoop() {
 		// Try to get a packet
 		println("wait for RX Packet (10s)")
 		resp, err := loraRx(radio, 10000)
-		println("Rx done")
+		//println("Rx done")
 		if err != nil {
 			println("RX Error:", err)
 			time.Sleep(time.Second)
@@ -88,7 +88,7 @@ func MonitorLoop() {
 		machine.LED2.High()
 		time.Sleep(time.Millisecond * 250)
 		machine.LED1.Low()
-		println("RX: ", libs.BytesToHexString(resp[:]))
+		println("> RX: ", libs.BytesToHexString(resp[:]))
 
 		// Try to decode
 		s := string(resp)
@@ -99,16 +99,16 @@ func MonitorLoop() {
 				continue
 			}
 		}
-		fmt.Printf("Position: %f %f \r\n", pTarget.Lat(), pTarget.Lng())
+		fmt.Printf("> POS: %f %f \r\n", pTarget.Lat(), pTarget.Lng())
 
 		if currentState.lastValidFix.Valid {
 			pCurrent := NewPoint(float64(currentState.lastValidFix.Longitude), float64(currentState.lastValidFix.Latitude))
 
 			// Display distance & bearing
 			dist := pCurrent.GreatCircleDistance(pTarget)
-			fmt.Printf("great circle distance: %f\r\n", dist)
+			fmt.Printf("> Distance: %f\r\n", dist)
 			bear := pCurrent.BearingTo(pTarget)
-			fmt.Printf("Bearing: %f\r\n", bear)
+			fmt.Printf("> Bearing: %f\r\n", bear)
 		}
 
 	}

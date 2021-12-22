@@ -71,7 +71,7 @@ func loraTx(radio sx126x.Device, pkt []uint8) error {
 		//println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", libs.IntToBinString(int(irq), 16))
 
 		if irq&sx126x.SX126X_IRQ_TX_DONE == sx126x.SX126X_IRQ_TX_DONE {
-			println("TX: Done")
+			//println("TX: Done")
 			return nil
 		} else if irq&sx126x.SX126X_IRQ_TIMEOUT == sx126x.SX126X_IRQ_TIMEOUT {
 			println("TX:Timeout")
@@ -113,7 +113,7 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 
 		//println("Status:", st, libs.IntToBinString(int(st), 8), "Irq:", irq, libs.IntToBinString(int(irq), 16))
 		if irq&sx126x.SX126X_IRQ_RX_DONE == sx126x.SX126X_IRQ_RX_DONE {
-			println("RX: got packet")
+			//println("RX: got packet")
 			radio.ClearIrqStatus(sx126x.SX126X_IRQ_ALL)
 
 			leng, offs := radio.GetRxBufferStatus()
@@ -122,7 +122,7 @@ func loraRx(radio sx126x.Device, timeoutMs int) ([]uint8, error) {
 			pkt = pkt[1:] // Skip first char ??? checkthat
 			return pkt, nil
 		} else if irq&sx126x.SX126X_IRQ_TIMEOUT == sx126x.SX126X_IRQ_TIMEOUT {
-			println("RX: Timeout")
+			//println("RX: Timeout")
 			return nil, nil
 		} else if irq > 0 {
 			println("RX unhandled IRQ value", irq)
