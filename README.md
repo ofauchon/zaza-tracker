@@ -1,9 +1,9 @@
 
-** Update 17/01/2023 
+** Update 17/01/2023 **
 
-Since a lot of Lora code had been moved to official tinygo-driver repository, this project needs a major cleanup/rewrite. 
+** Since a lot of Lora code had been moved to official tinygo-driver repository, this project needs a major cleanup/rewrite.  **
 
-Please have a look to the v2 branch for up-to-date news: **
+** Please have a look to the v2 branch for up-to-date news: **
 
 https://github.com/ofauchon/zaza-tracker/tree/v2
 
