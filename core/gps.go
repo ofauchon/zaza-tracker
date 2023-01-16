@@ -53,7 +53,9 @@ func GpsTaskLoop() {
 
 		fix, err = parser1.Parse(s)
 		if err != nil {
-			//println(err)
+			if (currentState.debug & DBG_GPS) > 0 {
+				println(err)
+			}
 			continue
 		}
 

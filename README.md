@@ -1,73 +1,50 @@
 # Description
 
-ZAZA tracker project is an open-source alternative firmware for LGT92 Dragino Tracking device. It's 100% Golang/TinyGO code. 
+Zaza tracker is a geolocation application for tinygo. 
+It reads gps coordinate from GPS Modules and transmit to Lorawan TTN Netwotk
 
-Two communication modes will be implemented:
 
-  * Lora mode : Mid-range positionning through some kind of Peer to peer Lora communication between two trackers)
-  * Lorawan mode : For long distance tracking ( GPS position are pushed on a Lorawan Network)
-  * Dual mode :  Short and Long range communication at the same time
+# Hardware. 
 
-At the moment, It's composed of two modules you can flash independently on a LGT92 device :  
+I'm currently developping with :
 
-  * The "tracker" which determine location and send radio packets
-  * The "receiver" which listen to radio packets and help locate the tracker
+- LoraE5 developement board
+- Beitian GPS Module (connected on UART2)
+- Tinygo
 
-The code is under heavy developpement and highly instable, please be kind. 
 
-Please send me a mail at ofauchon2204@gmail.com if you want to work on the project. 
+# Build and run 
 
-# Status (on 13/11/2020)
+For developement, I use a custom go.mod file so I can relocate the packages to any location: 
 
-|Category|Task|Status|
-|---|----|----|
-|Hardware|TinyGO support for STM32L0x|  **DONE** but not yet merged in upstream Tinygo|
-|Hardware|LPUART1 for serial console |**DONE** Serial communication OK| 
-|Hardware|UART1 for L70 GPS|**DONE** : Serial communication OK|
-|Hardware|RGB Led|**DONE** Individual LED control with GPIOs OK |
-|Hardware|SX1276 SPI driver |**DONE**, SX1276 read/write register OK |
-|Hardware|Push Button|**DONE**, Push and release events handled through external interrupt OK|
-|Hardware|STM32L0 Eeprom support|**DONE** Eeprom Read/Write is OK. |
-|Hardware|Reduce power consumption with Low power mode| **TO BE DONE** |
-|Hardware|Watchdog and hardware reset| **TO BE DONE** |
-|Radio|Lorawan lightweight stack| **WIP** First Lorawan Join Requests packet implementation OK. Next: Receive Join Accept packets and send real data  |
-|Protocols|GPS Sentence decoding|**DONE** Getting a GPS Fix in about 30-60s|
-|Protocols|serial console CLI and AT Commands| **TO BE DONE** |
-|Other|Code cleanup| **TO BE DONE** |
-|Other|Documentation (Build, flash, contribute)| **TO BE DONE** |
+It looks like this
 
-# How to run  
-
-  * Prerequisite
 ```
-  - A working TinyGO environnement with LGT92/STM32L0x support (*), with https://github.com/tinygo-org/tinygo/pull/1430 patch
-  - SWD interface (STLink or BlackMagic) to flash the firmware on LGT92
-  - TTL USART interface to connect to serial console 
+go.mod
+
+module zaza-tracker
+replace tinygo.org/x/drivers => /your/workspace/tinygo-drivers
+replace github.com/ofauchon/zaza-tracker => /your/workspace/zaza-tracker
+replace  github.com/tinygo-org/go-cayenne-lib => /your/workspace/go-cayenne-lib-deadprogram
+```
+
+You'll need to define your OTAA Lorawan settings, you can create a mykeys.go in core folder :
+
+```
+package core
+
+// These are sample keys, so the example builds
+// Either change here, or create a new go file and use customkeys build tag
+func setLorawanKeys() {
+	otaa.SetAppEUI([]uint8{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
+	otaa.SetDevEUI([]uint8{0xAA, 0xBB, 0xBB, 0xDD, 0xEE, 0x81, 0xB3, 0x65})
+	otaa.SetAppKey([]uint8{0xA2, 0x45, 0xFC, 0xF8, 0x34, 0x22, 0x22, 0x34, 0x43, 0x43, 0x12, 0x4F, 0xCE, 0x7A, 0x32, 0x16})
+}
+```
+
+then I build with : 
+
+```
+tinygo flash -work -x -target=lorae5 
+```
  
-(*) Still work in progress, not yet merged in TinyGo official repositories
-```
-
-
-  * Build and flash 
-
-```
-cd receiver/
-Run "make" to build the firmware
-Run "make flash" to flash (with BlackMagic Probe)
-Run "make term" to open serial console (with blackMagic Probe)
-```
-
-# Work in progress
-
-|Task |
-|-|
-|Improve serial CLI commands
-|Save non-volatile configuration in eeprom 
-|Receiver/Tracker merge or code factorisation + cleanup| 
-|Implement low power modes to save battery|
-|Use accelerometer to improve location or moving detection|
-|Tracker listening for notification packets|
-|Over the air (Lora) firmware updates ? |
- 
-
-

@@ -4,9 +4,10 @@ import (
 	"machine"
 	"time"
 
+	"github.com/ofauchon/zaza-tracker/core"
 	//	"github.com/ofauchon/go-lorawan-stack"
 	//	"tinygo.org/x/TRASH/drivers.lora.works/lora/sx127x"
-	core "./core"
+	//core "./core"
 )
 
 var (
@@ -26,7 +27,7 @@ func main() {
 	machine.LED.Configure(machine.PinConfig{Mode: machine.PinOutput})
 	for i := uint8(0); i < 6; i++ {
 		machine.LED.Set((i % 2) == 0)
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 
 	}
 
@@ -39,16 +40,16 @@ func main() {
 	println("################")
 
 	core.RunMode = core.RUNMODE_TRACKER
-	if !machine.BTN1.Get() {
+	if !core.BUTTON.Get() {
 		core.RunMode = core.RUNMODE_RECEIVER
 		println("XXX RECEIVER MODE XXX ")
-		machine.LED1.Set(true)
+		core.LED.Set(true)
 	}
 
-	if !machine.BTN2.Get() {
+	if !core.BUTTON.Get() {
 		core.RunMode = core.RUNMODE_CONSOLE
 		println("XXX CONSOLE MODE XXX ")
-		machine.LED2.Set(true)
+		core.LED.Set(true)
 	}
 
 	// Initialize all hardware
@@ -56,6 +57,7 @@ func main() {
 
 	// Start Loops
 	go core.ConsoleTaskLoop()
+	go core.LoraWanTask()
 	go core.GpsTaskLoop()
 	go core.MonitorLoop()
 	go core.TrackerLoop()
